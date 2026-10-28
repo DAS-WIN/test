@@ -1,0 +1,55 @@
+<Window x:Class="SrbMinerMonitor.App.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:views="clr-namespace:SrbMinerMonitor.App.Views"
+ Title="SRBMiner Monitor" Width="1440" Height="900" MinWidth="1100" MinHeight="720"
+ WindowStartupLocation="CenterScreen" UseLayoutRounding="True" Closing="OnClosing">
+ <Grid>
+  <Grid.ColumnDefinitions><ColumnDefinition Width="184"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Border Background="#141E29" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+   <DockPanel>
+    <StackPanel DockPanel.Dock="Top" Margin="24,30,12,30"><TextBlock Text="◈  SRB" FontSize="29" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/><TextBlock Text="MINER MONITOR" FontSize="10" Foreground="{StaticResource MutedBrush}" Margin="1,5,0,0"/></StackPanel>
+    <StackPanel DockPanel.Dock="Bottom" Margin="16,0,16,20">
+     <Border Background="#1C3038" CornerRadius="4" Padding="10,8"><TextBlock Text="● 本機 / Windows x64" Foreground="{StaticResource SuccessBrush}" FontSize="11"/></Border>
+     <Button Content="{Binding ModeAction}" Command="{Binding ToggleDemoCommand}" Margin="0,12,0,6" Padding="8,9" FontSize="11"/>
+     <Button Content="停止並退出" Command="{Binding ExitCommand}" Background="Transparent" BorderThickness="0" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+     <TextBlock Text="v0.1.0 · SRBMiner GUI" Style="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,12,0,0" FontSize="10"/>
+    </StackPanel>
+    <StackPanel>
+     <Button Content="▦    總覽" Command="{Binding OverviewCommand}"><Button.Style><Style TargetType="Button" BasedOn="{StaticResource NavButton}"><Style.Triggers><DataTrigger Binding="{Binding IsOverview}" Value="True"><Setter Property="Background" Value="#213E4D"/><Setter Property="Foreground" Value="{StaticResource AccentBrush}"/></DataTrigger></Style.Triggers></Style></Button.Style></Button>
+     <Button Content="⚙    挖礦設定" Command="{Binding SettingsCommand}"><Button.Style><Style TargetType="Button" BasedOn="{StaticResource NavButton}"><Style.Triggers><DataTrigger Binding="{Binding IsSettings}" Value="True"><Setter Property="Background" Value="#213E4D"/><Setter Property="Foreground" Value="{StaticResource AccentBrush}"/></DataTrigger></Style.Triggers></Style></Button.Style></Button>
+     <Button Content="☷    事件紀錄" Command="{Binding EventsCommand}"><Button.Style><Style TargetType="Button" BasedOn="{StaticResource NavButton}"><Style.Triggers><DataTrigger Binding="{Binding IsEvents}" Value="True"><Setter Property="Background" Value="#213E4D"/><Setter Property="Foreground" Value="{StaticResource AccentBrush}"/></DataTrigger></Style.Triggers></Style></Button.Style></Button>
+    </StackPanel>
+   </DockPanel>
+  </Border>
+  <Grid Grid.Column="1" Margin="26,20,26,0">
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="30"/></Grid.RowDefinitions>
+   <Grid Margin="0,0,0,18">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel><StackPanel Orientation="Horizontal"><TextBlock Text="{Binding RigTitle}" FontSize="21" FontWeight="SemiBold"/><Border Background="#253528" CornerRadius="4" Padding="9,4" Margin="14,0,0,0"><TextBlock Text="{Binding ModeLabel}" Foreground="{StaticResource WarningBrush}" FontSize="11"/></Border></StackPanel><TextBlock Text="{Binding Version}" Style="{StaticResource Muted}" Margin="0,7,0,0"/></StackPanel>
+    <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Status}" Foreground="{StaticResource SuccessBrush}" HorizontalAlignment="Right"/><TextBlock Style="{StaticResource Muted}" Margin="0,7,0,0"><Run Text="最後更新 "/><Run Text="{Binding LastUpdate}"/></TextBlock></StackPanel>
+   </Grid>
+   <Border Grid.Row="1" Background="#232B32" CornerRadius="5" Padding="12,9" Margin="0,0,0,16"><TextBlock Text="{Binding Notice}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" FontSize="12"/></Border>
+   <views:OverviewView Grid.Row="2" Visibility="{Binding IsOverview, Converter={StaticResource BoolVisibility}}"/>
+   <views:SettingsView Grid.Row="2" Visibility="{Binding IsSettings, Converter={StaticResource BoolVisibility}}"/>
+   <views:EventsView Grid.Row="2" Visibility="{Binding IsEvents, Converter={StaticResource BoolVisibility}}"/>
+   <DockPanel Grid.Row="3"><TextBlock Text="資料來源：SRBMiner API / 程序日誌 / NVIDIA 感測器" Style="{StaticResource Muted}" FontSize="10"/><TextBlock Text="{Binding Freshness}" Style="{StaticResource Muted}" FontSize="11" HorizontalAlignment="Right"/></DockPanel>
+   <Border Grid.Row="2" Panel.ZIndex="20" Visibility="{Binding ScheduleOpen, Converter={StaticResource BoolVisibility}}" HorizontalAlignment="Right" VerticalAlignment="Top" Width="420" Margin="0,48,0,0" Background="#1C2A38" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" CornerRadius="8" Padding="24">
+    <Border.Effect><DropShadowEffect BlurRadius="25" ShadowDepth="6" Opacity="0.6"/></Border.Effect>
+    <StackPanel>
+     <DockPanel Margin="0,0,0,16"><Button DockPanel.Dock="Right" Content="×" Command="{Binding CancelScheduleCommand}" Padding="7,1" Background="Transparent" BorderThickness="0"/><TextBlock Text="自動重啟設定" FontSize="18" FontWeight="SemiBold"/></DockPanel>
+     <CheckBox Content="啟用自動重啟" IsChecked="{Binding ScheduleEnabled}"/>
+     <TextBlock Text="每次運行多久後停止" Style="{StaticResource Muted}" Margin="0,16,0,7"/>
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions><TextBox Text="{Binding RunValue, UpdateSourceTrigger=PropertyChanged}"/><ComboBox Grid.Column="1" ItemsSource="{Binding RunUnits}" SelectedItem="{Binding RunUnit}" Margin="10,0,0,0"/></Grid>
+     <TextBlock Text="停止後等待多久再啟動" Style="{StaticResource Muted}" Margin="0,16,0,7"/>
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions><TextBox Text="{Binding WaitMinutes, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Grid.Column="1" Text="分鐘" Margin="20,0,0,0"/></Grid>
+     <CheckBox Content="持續循環執行" IsChecked="{Binding Repeat}" Margin="0,20,0,14"/>
+     <TextBlock Text="運行 → 停止 → 等待 → 重新啟動" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,15"/>
+     <TextBlock Text="等待時間從礦工完全停止後開始計算。" Style="{StaticResource Muted}"/>
+     <TextBlock Text="手動停止將取消排程，不會自動再啟動。" Foreground="{StaticResource WarningBrush}" FontSize="12" Margin="0,9,0,20"/>
+     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="取消" Command="{Binding CancelScheduleCommand}" Margin="0,0,10,0"/><Button Content="套用排程" Command="{Binding ApplyScheduleCommand}" Style="{StaticResource PrimaryButton}"/></StackPanel>
+    </StackPanel>
+   </Border>
+  </Grid>
+ </Grid>
+</Window>

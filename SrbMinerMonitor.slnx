@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SrbMinerMonitor.App/SrbMinerMonitor.App.csproj" />
+    <Project Path="src/SrbMinerMonitor.Core/SrbMinerMonitor.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SrbMinerMonitor.Tests/SrbMinerMonitor.Tests.csproj" />
+    <Project Path="tests/SrbMinerMonitor.WindowsSmoke/SrbMinerMonitor.WindowsSmoke.csproj" />
+  </Folder>
+</Solution>

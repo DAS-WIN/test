@@ -1,0 +1,53 @@
+<UserControl x:Class="SrbMinerMonitor.App.Views.SettingsView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <DockPanel>
+  <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,15,0,18" Margin="0,16,0,0">
+   <DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="取消變更" Command="{Binding CancelSettingsCommand}" Margin="0,0,10,0"/><Button Content="儲存設定" Command="{Binding SaveCommand}" Margin="0,0,10,0"/><Button Content="儲存並重啟" Command="{Binding SaveRestartCommand}" Style="{StaticResource PrimaryButton}"/></StackPanel><TextBlock Text="儲存草稿不會影響目前運行中的礦工" Style="{StaticResource Muted}"/></DockPanel>
+  </Border>
+  <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,0,8,0">
+   <TextBlock Text="挖礦設定" FontSize="23" FontWeight="SemiBold"/><TextBlock Text="設定礦工、礦池與挖礦裝置 · 修改設定後，需重新啟動礦工才會生效。" Style="{StaticResource Muted}" Margin="0,8,0,20"/>
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1.6*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+    <StackPanel>
+     <Border Style="{StaticResource Panel}" Margin="0,0,0,18"><StackPanel>
+      <TextBlock Text="礦工與演算法" Style="{StaticResource SectionTitle}"/>
+      <TextBlock Text="SRBMiner 執行檔" Style="{StaticResource Muted}" Margin="0,0,0,7"/>
+      <DockPanel><Button DockPanel.Dock="Right" Content="瀏覽…" Command="{Binding BrowseCommand}" Margin="10,0,0,0"/><TextBox Text="{Binding Settings.Executable, UpdateSourceTrigger=PropertyChanged}" ToolTip="選擇使用者安裝的官方 SRBMiner-MULTI.exe"/></DockPanel>
+      <TextBlock Text="演算法" Style="{StaticResource Muted}" Margin="0,17,0,7"/>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><ComboBox ItemsSource="{Binding Settings.Algorithms}" Text="{Binding Settings.Algorithm, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" IsTextSearchEnabled="True"/><Button Grid.Column="1" Content="↻ 讀取支援演算法" Command="{Binding ReadAlgorithmsCommand}" Foreground="{StaticResource AccentBrush}" Margin="10,0,0,0"/></Grid>
+      <TextBlock Text="{Binding Settings.AlgorithmHint}" Foreground="{StaticResource SuccessBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,9,0,0"/>
+      <TextBlock Text="來源：--list-algorithms · 不代表每張 GPU 皆支援該演算法" Style="{StaticResource Muted}" FontSize="10" Margin="0,5,0,0"/>
+      <TextBlock Text="礦機名稱" Style="{StaticResource Muted}" Margin="0,17,0,7"/><TextBox Text="{Binding Settings.RigName, UpdateSourceTrigger=PropertyChanged}"/>
+      <TextBlock Text="單一演算法 · 多張 GPU · 不內含礦工執行檔" Style="{StaticResource Muted}" FontSize="11" Margin="0,12,0,0"/>
+     </StackPanel></Border>
+     <Border Style="{StaticResource Panel}"><StackPanel>
+      <TextBlock Text="礦池與錢包" Style="{StaticResource SectionTitle}"/>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="礦池主機（不含協定與連接埠）" Style="{StaticResource Muted}" Margin="0,0,0,7"/><TextBox Text="{Binding Settings.PoolHost, UpdateSourceTrigger=PropertyChanged}"/></StackPanel><StackPanel Grid.Column="1" Margin="12,0,0,0"><TextBlock Text="連接埠" Style="{StaticResource Muted}" Margin="0,0,0,7"/><TextBox Text="{Binding Settings.PoolPort, UpdateSourceTrigger=PropertyChanged}"/></StackPanel></Grid>
+      <TextBlock Text="錢包地址 *" Style="{StaticResource Muted}" Margin="0,17,0,7"/><TextBox Text="{Binding Settings.Wallet, UpdateSourceTrigger=PropertyChanged}"/>
+      <Grid Margin="0,17,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions><StackPanel Margin="0,0,6,0"><TextBlock Text="Worker" Style="{StaticResource Muted}" Margin="0,0,0,7"/><TextBox Text="{Binding Settings.Worker, UpdateSourceTrigger=PropertyChanged}"/></StackPanel><StackPanel Grid.Column="1" Margin="6,0,0,0"><TextBlock Text="密碼（選填）" Style="{StaticResource Muted}" Margin="0,0,0,7"/><PasswordBox x:Name="PoolPassword" PasswordChanged="OnPasswordChanged" MinHeight="38"/></StackPanel></Grid>
+      <DockPanel Margin="0,17,0,0"><Button DockPanel.Dock="Right" Content="測試礦池連線" Command="{Binding TestPoolCommand}"/><CheckBox Content="使用 TLS 加密連線" IsChecked="{Binding Settings.Tls}"/></DockPanel>
+      <TextBlock Text="僅驗證網路／TLS，不驗證錢包或分享結果。密碼以 Windows DPAPI 保護。" Style="{StaticResource Muted}" TextWrapping="Wrap" FontSize="10" Margin="0,12,0,0"/>
+     </StackPanel></Border>
+    </StackPanel>
+    <StackPanel Grid.Column="2">
+     <Border Style="{StaticResource Panel}" Margin="0,0,0,18"><StackPanel>
+      <DockPanel Margin="0,0,0,16"><Button DockPanel.Dock="Right" Content="偵測顯卡" Command="{Binding DetectDevicesCommand}" FontSize="11" Padding="10,6"/><TextBlock Text="挖礦裝置" FontSize="15" FontWeight="SemiBold"/></DockPanel>
+      <ItemsControl ItemsSource="{Binding Settings.Devices}"><ItemsControl.ItemTemplate><DataTemplate><CheckBox Content="{Binding Name}" IsChecked="{Binding Selected}" Margin="0,5"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      <TextBlock Text="使用 GPU ID（以逗號分隔）" Style="{StaticResource Muted}" Margin="0,12,0,7"/><TextBox Text="{Binding Settings.GpuIds, UpdateSourceTrigger=PropertyChanged}" ToolTip="例如 0,1；ID 必須來自 SRBMiner --list-devices"/>
+      <TextBlock Text="請以 --list-devices 的裝置編號為準。偵測格式不相容時，可手動輸入 ID。" Style="{StaticResource Muted}" TextWrapping="Wrap" FontSize="11" Margin="0,12,0,0"/>
+      <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,17,0,0" Padding="0,12,0,0"><TextBlock Text="核心與顯存頻率可在總覽查看。&#x0a;第一版僅供監控，不調整超頻或風扇。" TextWrapping="Wrap" Style="{StaticResource Muted}" FontSize="11" LineHeight="20"/></Border>
+     </StackPanel></Border>
+     <Border Style="{StaticResource Panel}" Margin="0,0,0,18"><StackPanel>
+      <TextBlock Text="監控設定" Style="{StaticResource SectionTitle}"/><TextBlock Text="API 連接埠" Style="{StaticResource Muted}" Margin="0,0,0,7"/><TextBox Text="{Binding Settings.ApiPort, UpdateSourceTrigger=PropertyChanged}"/>
+      <DockPanel Margin="0,16,0,0"><TextBlock Text="更新間隔" Style="{StaticResource Muted}"/><TextBlock Text="5 秒（固定）" HorizontalAlignment="Right"/></DockPanel>
+      <TextBlock Text="僅讀取 127.0.0.1 的 JSON API。&#x0a;逾時 3 秒，不重疊發送請求。" Style="{StaticResource Muted}" FontSize="11" Margin="0,14,0,0" LineHeight="20"/>
+     </StackPanel></Border>
+     <Border Background="#182D38" BorderBrush="#284A5C" BorderThickness="1" CornerRadius="8" Padding="18"><StackPanel>
+      <TextBlock Text="開始之前" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" Margin="0,0,0,12"/>
+      <TextBlock Text="選擇官方礦工執行檔，讀取演算法，設定礦池與錢包，再選擇 GPU。儲存後即可在總覽啟動。" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" LineHeight="23" FontSize="12"/>
+      <TextBlock Text="只有 GUI 自己啟動的程序可被停止或重啟。" TextWrapping="Wrap" Foreground="{StaticResource WarningBrush}" FontSize="11" Margin="0,12,0,0"/>
+     </StackPanel></Border>
+    </StackPanel>
+   </Grid>
+  </StackPanel></ScrollViewer>
+ </DockPanel>
+</UserControl>
