@@ -34,7 +34,7 @@ public partial class MainWindow : Window
             };
             _tray.DoubleClick += (_, _) => Dispatcher.Invoke(Restore);
             _tray.ContextMenuStrip.Items.Add("開啟 SRBMiner Monitor", null, (_, _) => Dispatcher.Invoke(Restore));
-            _tray.ContextMenuStrip.Items.Add("停止並退出", null, (_, _) => Dispatcher.Invoke(() =>
+            _tray.ContextMenuStrip.Items.Add("結束應用程式", null, (_, _) => Dispatcher.Invoke(() =>
             { if (_viewModel.ExitCommand.CanExecute(null)) _viewModel.ExitCommand.Execute(null); }));
         }
         catch (Exception e)
@@ -62,6 +62,6 @@ public partial class MainWindow : Window
         Hide();
         if (_notified) return;
         _notified = true;
-        _tray.ShowBalloonTip(3000, "SRBMiner Monitor", "程式已縮至系統匣，監控與排程繼續執行。若要結束，請選擇「停止並退出」。", Forms.ToolTipIcon.Info);
+        _tray.ShowBalloonTip(3000, "SRBMiner Monitor", "程式已縮至系統匣，監控與排程繼續執行。若要結束，請選擇「結束應用程式」。", Forms.ToolTipIcon.Info);
     }
 }

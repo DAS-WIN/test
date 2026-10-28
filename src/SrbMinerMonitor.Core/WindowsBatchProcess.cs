@@ -102,17 +102,8 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
     public async Task StopAsync(CancellationToken ct)
     {
         if (!IsRunning) return;
-        var processes = ProcessIds();
-        foreach (var pid in processes)
-        {
-            if (!AttachConsole(pid)) continue;
-            try
-            {
-                // Nonzero owned group IDs keep the GUI and unrelated console processes out of the signal.
-                foreach (var group in processes.Append(_rootPid).Where(group => group != 0).Distinct()) GenerateConsoleCtrlEvent(1, group);
-            }
-            finally { FreeConsole(); }
-        }
+        var groups = ProcessIds().Append(_rootPid);
+        if (!await ConsoleStopSignal.SendAsync(groups)) Log?.Invoke("正常停止訊號未送達，將等待後終止受管理的礦工；監控程式保持運行。");
         var watch = Stopwatch.StartNew();
         while (IsRunning && watch.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(100, CancellationToken.None);
         if (IsRunning)
@@ -169,10 +160,6 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
     [DllImport("kernel32.dll", SetLastError = true)] private static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool TerminateProcess(IntPtr process, uint code);
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseHandle(IntPtr handle);
-    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool AttachConsole(uint pid);
-    [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool FreeConsole();
-    [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetConsoleCtrlHandler(IntPtr handler, [MarshalAs(UnmanagedType.Bool)] bool add);
-    [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GenerateConsoleCtrlEvent(uint signal, uint group);
     [StructLayout(LayoutKind.Sequential)] private struct StartupInfoEx { public StartupInfo Startup; public IntPtr Attributes; }
     [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, uint flags, ref nuint size);
     [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, nuint size, IntPtr previous, IntPtr returned);

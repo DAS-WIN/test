@@ -6,8 +6,8 @@
    <DockPanel Margin="0,0,0,16">
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
      <Button Content="▶ 開始" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
-     <Button Content="■ 停止" Command="{Binding StopCommand}" Foreground="#E99797" BorderBrush="#784A53" Background="Transparent" Margin="0,0,8,0"/>
-     <Button Content="↻ 重啟礦工" Command="{Binding RestartCommand}" Margin="0,0,8,0"/>
+     <Button x:Name="StopMinerButton" Content="■ 停止礦工" ToolTip="只停止挖礦程序，監控視窗保持開啟" Command="{Binding StopCommand}" Foreground="#E99797" BorderBrush="#784A53" Background="Transparent" Margin="0,0,8,0"/>
+     <Button x:Name="RestartMinerButton" Content="↻ 重啟礦工" ToolTip="只重啟挖礦程序，監控視窗保持開啟" Command="{Binding RestartCommand}" Margin="0,0,8,0"/>
      <Button Content="◷ 自動重啟礦工" Command="{Binding ScheduleCommand}" Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
      <Button Content="⚙ 設定" Command="{Binding SettingsCommand}"/>
     </StackPanel>

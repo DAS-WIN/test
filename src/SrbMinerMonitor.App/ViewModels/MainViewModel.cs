@@ -17,7 +17,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly MinerOutput _minerOutput = new();
     private readonly MinuteMetrics _minuteMetrics = new();
-    private readonly ShareFeed _shareFeed = new();
     private readonly Queue<string> _outputLines = new();
     private MinerSettings _saved = new();
     private MinerSettings? _activeSettings;
@@ -148,11 +147,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 if (session != _process.OutputSession) return;
-                if (_outputSession != session) { _outputSession = session; _minerOutput.Reset(); _shareFeed.Reset(); }
+                if (_outputSession != session) { _outputSession = session; _minerOutput.Reset(); }
                 var clean = MinerOutput.Clean(line);
                 _minerOutput.Read(clean);
                 _outputLines.Enqueue(Redact(clean)); while (_outputLines.Count > 500) _outputLines.Dequeue();
-                if (_shareFeed.ObserveOutput(clean, _minerOutput.ObservedTotal, DateTimeOffset.Now) is { } notice) ApplyShareNotice(notice);
+                if (MinerOutput.Outcome(clean) is string outcome) AddShareEvent(outcome, clean);
                 Changed(nameof(MinerOutputText)); Refresh();
             });
         };
@@ -188,16 +187,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void ShowError(Exception e) { Notice = Redact(e.Message); StartupDiagnostics.Write("Operation failed: " + Redact(e.ToString())); }
     private void Navigate(string page) { _page = page; Changed(nameof(IsOverview)); Changed(nameof(IsSettings)); Changed(nameof(IsEvents)); }
     private static string Redact(string text) => System.Text.RegularExpressions.Regex.Replace(text, @"(?i)(password|passwd|--password|--pass)\s*[:= ]\s*[^\s]+", "$1 [已遮蔽]");
-    private void ApplyShareNotice(ShareNotice notice)
+    private void AddShareEvent(string category, string text)
     {
-        var record = new MonitorEvent(notice.Time, notice.Category, Redact(notice.Message), notice.Id);
-        if (notice.Replace)
-        {
-            var existing = Events.FirstOrDefault(e => e.Id == notice.Id);
-            if (existing is null) return;
-            Events[Events.IndexOf(existing)] = record;
-        }
-        else Events.Insert(0, record);
+        // Event text is only the miner's actual stdout/stderr; API counts never create messages.
+        Events.Insert(0, new(DateTimeOffset.Now, category, Redact(text), Guid.NewGuid()));
         while (Events.Count > 2000) Events.RemoveAt(Events.Count - 1);
         Changed(nameof(FilteredEvents)); Changed(nameof(RecentShares));
     }
@@ -218,6 +211,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private async Task Stop()
     {
+        Notice = "正在停止挖礦程序，監控視窗會保持開啟。";
         await _controller.StopAsync(); _restart = _restart with { Enabled = false };
         if (_settingsLoaded) { _saved = _saved with { Restart = _restart }; await _store.SaveAsync(_saved); }
         _activeSettings = null; _apiHealthy = false; ApiStatus = "礦工已停止。"; Notice = "礦工已停止，自動重啟已取消。";
@@ -347,12 +341,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_snapshot is null || _lastControllerSession != session) _lastSession = session;
             else if (snapshot.UptimeSeconds < _snapshot.UptimeSeconds)
             {
-                _lastSession = Guid.NewGuid(); _minerOutput.Reset(); _shareFeed.Reset();
+                _lastSession = Guid.NewGuid(); _minerOutput.Reset();
             }
             _lastControllerSession = session; snapshot = snapshot with { Session = _lastSession };
             _snapshot = snapshot; _apiHealthy = true; ApiStatus = $"API 已連線 · {snapshot.Timestamp:HH:mm:ss}";
             _minerOutput.Reconcile(snapshot);
-            foreach (var notice in _shareFeed.ObserveApi(snapshot.Shares, snapshot.Timestamp, _controller.IsRunning)) ApplyShareNotice(notice);
             Refresh(); // Publish recent shares before waiting for hardware sensors.
             var refresh = _saved.MetricRefresh;
             if (_minuteMetrics.IsDue(snapshot.Timestamp, snapshot.Session, refresh))

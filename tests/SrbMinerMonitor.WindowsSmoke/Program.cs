@@ -23,6 +23,9 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (ConsoleStopSignal.TryHandleArguments(args, out var helperExit)) return helperExit;
+        if (Native.GetConsoleWindow() != IntPtr.Zero) { Console.Error.WriteLine("GUI integration host must not have an attached console."); return 1; }
+        Console.WriteLine("PASS: integration host is WinExe with no attached console.");
         var output = Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/screenshots");
         Directory.CreateDirectory(output);
         StartupDiagnostics.SuppressDialogs = true;
@@ -66,7 +69,7 @@ internal static class Program
                 vm.EventsCommand.Execute(null); await Render("events");
                 window.Width = 1100; window.Height = 720; vm.OverviewCommand.Execute(null); await Render("overview-small");
                 if (errors.Messages.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, errors.Messages));
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: dark theme; no demo or non-BAT launch; accepted above hashrate and no banner; event log contains only success/failure/timeout; minute hashrate independent of live shares; existing and pasted BAT; protected settings; BAT launch, real loopback HTTP polling, stop, restart and detached child ownership using a non-mining fixture; Run.Text OneWay; three pages, schedule, 1440x900/1100x720 rendered; no binding errors.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: GUI subsystem host without an attached console; actual Stop/Restart buttons retain the same visible GUI; CMD-only recent success and API-only numeric counters; dark theme; no demo or non-BAT launch; accepted above hashrate and no banner; event log contains only success/failure/timeout; minute hashrate independent of live shares; existing and pasted BAT; protected settings; BAT launch, real loopback HTTP polling, stop, restart and detached child ownership using a non-mining fixture; Run.Text OneWay; three pages, schedule, 1440x900/1100x720 rendered; no binding errors.");
             }
             catch (Exception e)
             {
@@ -98,6 +101,31 @@ internal static class Program
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
             using var stream = File.Create(Path.Combine(output, name + ".png")); encoder.Save(stream);
         }
+    }
+    private static async Task InvokeMinerButton(MainViewModel vm, string name)
+    {
+        var window = Application.Current.Windows.OfType<MainWindow>().Single();
+        var pid = Environment.ProcessId; var exitRequested = false;
+        void OnExit() => exitRequested = true;
+        vm.ExitRequested += OnExit;
+        try
+        {
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var button = Descendants<Button>(window).Single(b => b.Name == name);
+            if (!button.Command.CanExecute(null)) throw new InvalidOperationException("Miner action is not available: " + name);
+            var peer = new System.Windows.Automation.Peers.ButtonAutomationPeer(button);
+            var invoke = (System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke);
+            invoke.Invoke();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var until = DateTimeOffset.Now.AddSeconds(25);
+            while ((vm.IsBusy || button.Command is AsyncCommand { IsExecuting: true }) && DateTimeOffset.Now < until) await Task.Delay(50);
+            if (vm.IsBusy || button.Command is AsyncCommand { IsExecuting: true }) throw new TimeoutException("Miner button did not finish: " + name);
+            if (exitRequested || Environment.ProcessId != pid || !window.IsVisible || Native.GetConsoleWindow() != IntPtr.Zero) throw new InvalidOperationException("Miner stop/restart closed the GUI or attached it to a console.");
+            if (name == "StopMinerButton" && !vm.Status.StartsWith("礦工已停止")) throw new InvalidOperationException("Stop button did not stop only the miner: " + vm.Status);
+            if (name == "RestartMinerButton" && !vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("Restart button did not restart the miner: " + vm.Status);
+            Console.WriteLine("PASS: " + name + " completed; GUI PID unchanged=" + pid + "; visible, responsive, and never attached to miner console.");
+        }
+        finally { vm.ExitRequested -= OnExit; }
     }
     private static async Task Execute(MainViewModel vm, ICommand command, int seconds = 20)
     {
@@ -151,7 +179,7 @@ internal static class Program
             if (!vm.Events.Any(e => e.Category == "成功") || !vm.Events.Any(e => e.Category == "失敗") || !vm.Events.Any(e => e.Category == "逾時") || vm.Events.Any(e => e.Category is not ("成功" or "失敗" or "逾時"))) throw new InvalidOperationException("Events must contain only share outcomes.");
             vm.EventFilter = "逾時"; if (vm.FilteredEvents.Any(e => e.Category != "逾時")) throw new InvalidOperationException("Share outcome filter failed."); vm.EventFilter = "全部";
             Console.WriteLine("PASS: accepted updates within 2 seconds without changing minute hashrate; only success/rejected/timeout in event log.");
-            await Execute(vm, vm.StopCommand); await AssertPortClosed(port);
+            await InvokeMinerButton(vm, "StopMinerButton"); await AssertPortClosed(port);
             // Paste the same script; API is inserted automatically and the temporary BAT uses the miner folder.
             vm.Settings.BatchInputMode = vm.Settings.BatchModes[1]; vm.Settings.BatchContent = userShape; vm.Settings.BatchDirectory = directory;
             await Execute(vm, vm.SaveRestartCommand); await WaitForApi(vm);
@@ -161,7 +189,7 @@ internal static class Program
             var restored = await new SettingsStore(Path.Combine(output, "isolated-settings")).LoadAsync();
             if (restored.BatchContent != userShape || !restored.UsePastedBatch) throw new InvalidOperationException("Pasted BAT protection/restore failed.");
             vm.SettingsCommand.Execute(null); await render("pasted-bat-settings"); vm.OverviewCommand.Execute(null);
-            await Execute(vm, vm.StopCommand); await AssertPortClosed(port);
+            await InvokeMinerButton(vm, "StopMinerButton"); await AssertPortClosed(port);
             if (Directory.GetFiles(directory, "SRBMiner-Monitor-*.bat").Length != 0) throw new InvalidOperationException("Generated BAT was not removed after stop.");
             vm.Settings.BatchInputMode = vm.Settings.BatchModes[0];
             Console.WriteLine("PASS: pasted BAT -> automatic API -> correct working folder -> protected settings -> stop deletes generated BAT.");
@@ -174,14 +202,14 @@ internal static class Program
             await Task.Delay(1000);
             if (!vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("Lost ownership when cmd exited before its child.");
             Console.WriteLine("PASS: detached START child remains owned after cmd exits.");
-            await Execute(vm, vm.RestartCommand);
+            await InvokeMinerButton(vm, "RestartMinerButton");
             Console.WriteLine("Restart result: " + vm.Status + " / " + vm.Notice + " / " + vm.ApiStatus);
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("BAT restart failed.");
             if (vm.Accepted != "4" || vm.TotalAccepted != "4") throw new InvalidOperationException("API plus output counted twice or restart kept old counters.");
             await VerifyRefreshAndLiveFeed(vm, directory, output, render);
             await VerifyScheduledRestart(vm, render);
-            await Execute(vm, vm.StopCommand);
+            await InvokeMinerButton(vm, "StopMinerButton");
             await AssertPortClosed(port);
             Console.WriteLine("PASS: detached BAT restart and stop completed; API port closed.");
             await File.WriteAllTextAsync(Path.Combine(output, "batch-integration.txt"), "PASS: original BAT preserved; monitoring copy adds API; Unicode/space/ampersand/literal-percent/exclamation paths; API -> dashboard; stop kills owned tree; detached START children remain owned; restart returns to API; no mining performed.");
@@ -189,7 +217,7 @@ internal static class Program
         finally
         {
             Environment.SetEnvironmentVariable("PATH", previousSearchPath);
-            if (vm.StopCommand.CanExecute(null)) await Execute(vm, vm.StopCommand);
+            if (vm.StopCommand.CanExecute(null)) { vm.OverviewCommand.Execute(null); await InvokeMinerButton(vm, "StopMinerButton"); }
             try { Directory.Delete(directory, true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { StartupDiagnostics.Write("Deferred temporary fixture cleanup: " + e.Message); }
         }
@@ -204,18 +232,20 @@ internal static class Program
         if (vm.Power == "—" || vm.Temperature == "—") throw new InvalidOperationException("Hardware sensor fixture did not bind.");
         var frozen = Hardware(); var historyCount = vm.History.Samples.Count;
         var successes = vm.Events.Count(e => e.Category == "成功");
+        var recentId = vm.RecentShares.First().Id;
         await File.WriteAllTextAsync(Path.Combine(directory, "fixture-api-accepted"), "go");
         var deadline = DateTimeOffset.Now.AddSeconds(3);
-        while ((vm.TotalAccepted != "5" || !vm.RecentShares.First().Message.Contains("API 已確認")) && DateTimeOffset.Now < deadline) await Task.Delay(20);
-        if (vm.TotalAccepted != "5" || !vm.RecentShares.First().Message.Contains("API 已確認")) throw new InvalidOperationException("Red-box recent shares did not update from API while stdout is withheld.");
-        var recentId = vm.RecentShares.First().Id;
+        while (vm.TotalAccepted != "5" && DateTimeOffset.Now < deadline) await Task.Delay(20);
+        if (vm.TotalAccepted != "5") throw new InvalidOperationException("Accepted numeric counter did not update from API.");
+        if (vm.RecentShares.First().Id != recentId || vm.Events.Count(e => e.Category == "成功") != successes) throw new InvalidOperationException("API created a textual success entry; recent shares must contain only CMD output.");
         await Task.Delay(1200);
         if (Hardware() != frozen || vm.History.Samples.Count != historyCount) throw new InvalidOperationException("Hardware changed before configured daily interval.");
         await File.WriteAllTextAsync(Path.Combine(directory, "fixture-flush-accepted"), "go");
         deadline = DateTimeOffset.Now.AddSeconds(3);
         while (!vm.RecentShares.First().Message.Contains("DELAYED_FIXTURE") && DateTimeOffset.Now < deadline) await Task.Delay(20);
-        if (vm.RecentShares.First().Id != recentId || !vm.RecentShares.First().Message.Contains("DELAYED_FIXTURE") || vm.Events.Count(e => e.Category == "成功") != successes + 1 || vm.TotalAccepted != "5") throw new InvalidOperationException("Delayed stdout duplicated the API-confirmed share or failed to enrich it.");
-        Console.WriteLine("PASS: API-confirmed recent success is live while stdout is buffered; late output enriches the same entry with no duplicate; all hardware remains frozen.");
+        const string expected = "GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE";
+        if (vm.RecentShares.First().Message != expected || vm.Events.Count(e => e.Category == "成功") != successes + 1 || vm.TotalAccepted != "5" || vm.RecentShares.Any(e => e.Message.Contains("API 已確認"))) throw new InvalidOperationException("Recent shares must preserve the exact CMD message without API text or duplicate counts.");
+        Console.WriteLine("PASS: API only updates numeric counters; recent-success panel stays unchanged until CMD output, then shows the exact original line once.");
         vm.Settings.RefreshValue = "2"; vm.Settings.RefreshUnit = "秒";
         await Execute(vm, vm.SaveCommand);
         var before = Hardware(); var power = vm.Power; var rate = vm.Hashrate;
@@ -242,7 +272,7 @@ internal static class Program
         var sawWaiting = false; var previousSummary = "";
         while (DateTimeOffset.Now < until)
         {
-            if (Environment.ProcessId != appPid || !Application.Current.Windows.OfType<MainWindow>().Any(w => w.IsVisible)) throw new InvalidOperationException("Restart closed the application window.");
+            if (Native.GetConsoleWindow() != IntPtr.Zero || Environment.ProcessId != appPid || !Application.Current.Windows.OfType<MainWindow>().Any(w => w.IsVisible)) throw new InvalidOperationException("Restart closed the application window.");
             if (vm.ScheduleSummary.StartsWith("排程錯誤")) throw new InvalidOperationException(vm.ScheduleSummary);
             if (vm.ScheduleSummary.StartsWith("等待重啟")) sawWaiting = true;
             var phase = vm.ScheduleSummary.Split('·')[0];
@@ -302,5 +332,9 @@ internal static class Program
         public List<string> Messages { get; } = [];
         public override void Write(string? message) { if (!string.IsNullOrEmpty(message)) Messages.Add(message); }
         public override void WriteLine(string? message) => Write(message);
+    }
+    private static class Native
+    {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
     }
 }
