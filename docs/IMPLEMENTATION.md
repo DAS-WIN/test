@@ -34,6 +34,6 @@
 
 ## 驗證邊界
 
-已在 Linux 執行 .NET 10 核心測試、完整 WPF 交叉編譯與 Windows x64 發布。Windows 視窗、系統匣、DPAPI、CTRL_C 及實際 GPU／礦池端到端行為仍需 Windows 實機。交叉編譯不等於實機驗收。
+已在 Linux 執行 .NET 10 核心測試、完整 WPF 交叉編譯與 Windows x64 發布。0.1.1 另於 Windows Server 2025 的 GitHub Actions 執行實際 WPF 畫面與發布後 EXE 啟動檢查，詳見 VERIFICATION.md。使用者 Windows 11 上的系統匣互動、DPAPI 跨次啟動、CTRL_C 及實際 GPU／礦池端到端行為仍需實機驗收。
 
-`scripts/Smoke-Windows.ps1` 可在 Windows 巡覽三頁與排程面板，檢查 WPF binding errors 並輸出 PNG。CI 設定包含此步驟；本機新增 workflow 不代表遠端 CI 已執行。
+`scripts/Smoke-Windows.ps1` 在 Windows 巡覽三頁與排程面板，檢查 WPF binding errors 並輸出 PNG。`scripts/Verify-PublishedStartup.ps1` 直接啟動發佈的 EXE，確認一般與示範模式完成視窗繪製並正常退出；私有 GitHub prerelease 僅在這些檢查通過後上傳。

@@ -2,6 +2,14 @@
 
 繁體中文 Windows 桌面監控程式，採用 C#、.NET 10、WPF 與 MVVM。依「設計 SRBMiner-Multi GUI」最後方案製作深灰／青藍介面，支援單機、多張 GPU、單一演算法。
 
+## 0.1.1 啟動修正
+
+修正 0.1.0 在顯示視窗時退出的問題：WPF `Run.Text` 預設雙向綁定，但最後更新與運行時間為唯讀屬性，現已明確改為單向綁定。另修正繁中運行時間格式，加入啟動錯誤提示與診斷紀錄。
+
+若先前程序仍留在工作管理員，先結束舊版 SRBMiner Monitor，再將新版完整解壓縮到新資料夾執行，勿只替換 EXE。
+
+若仍無法啟動，執行 `Start-Diagnostics.cmd`，查看 `%LOCALAPPDATA%\SRBMiner Monitor\Logs\startup-*.log`。錯誤視窗也會顯示實際紀錄路徑；無法寫入該目錄時會改用 `%TEMP%\SRBMiner Monitor\Logs`。若尚未進入 .NET 程式，診斷啟動器會將 runtime host 訊息保存到 `%TEMP%\SRBMiner-Monitor-host.log`。
+
 ## 快速開始
 
 1. 在 Windows 10/11 x64 解壓縮可攜式套件，保留資料夾內所有檔案。
