@@ -8,6 +8,24 @@ namespace SrbMinerMonitor.Tests;
 public sealed class ApiReaderTests
 {
     [Fact]
+    public async Task RestartWaitsForPreviousListenerToRelease()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var waiting = LocalApiPort.WaitUntilReleasedAsync(port, TimeSpan.FromSeconds(2));
+        Assert.False(waiting.IsCompleted);
+        listener.Stop();
+        Assert.True(await waiting);
+    }
+    [Fact]
+    public async Task ReleaseWaitDoesNotTakeOverAnotherListener()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        Assert.False(await LocalApiPort.WaitUntilReleasedAsync(port, TimeSpan.FromMilliseconds(100)));
+        Assert.Throws<InvalidOperationException>(() => LocalApiPort.EnsureAvailable(port));
+    }
+    [Fact]
     public void LocalPortCheckDistinguishesListenerFromUnusedPortWithoutConnecting()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);

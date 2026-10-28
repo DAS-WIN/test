@@ -4,6 +4,16 @@ namespace SrbMinerMonitor.Core;
 
 public static class LocalApiPort
 {
+    public static async Task<bool> WaitUntilReleasedAsync(int port, TimeSpan timeout)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Any(endpoint => endpoint.Port == port))
+        {
+            if (watch.Elapsed >= timeout) return false;
+            await Task.Delay(50);
+        }
+        return true;
+    }
     public static void EnsureAvailable(int port)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));

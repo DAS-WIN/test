@@ -8,6 +8,7 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
 {
     private Process? _process;
     private WindowsBatchProcess? _batch;
+    private int? _activeApiPort;
     public bool IsRunning => _batch?.IsRunning ?? _process is { HasExited: false };
     public event Action<string>? Log;
 
@@ -16,6 +17,7 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
         if (settings.Validate() is string error) throw new ArgumentException(error);
         if (IsRunning) throw new InvalidOperationException("已有受管理的礦工程序。");
         LocalApiPort.EnsureAvailable(settings.ApiPort);
+        _activeApiPort = settings.ApiPort;
         _process?.Dispose();
         _process = null;
         _batch?.Dispose(); _batch = null;
@@ -48,10 +50,19 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
 
     public async Task StopAsync(CancellationToken ct)
     {
-        if (_batch is not null) { await _batch.StopAsync(ct); return; }
+        if (_batch is not null)
+        {
+            await _batch.StopAsync(ct);
+            if (_activeApiPort is int batchPort) await LocalApiPort.WaitUntilReleasedAsync(batchPort, TimeSpan.FromSeconds(3));
+            return;
+        }
         var process = _process;
-        if (process is null || process.HasExited) return;
-        if (OperatingSystem.IsWindows()) TrySendCtrlC(process.Id);
+        if (process is null || process.HasExited)
+        {
+            if (_activeApiPort is int previousPort) await LocalApiPort.WaitUntilReleasedAsync(previousPort, TimeSpan.FromSeconds(3));
+            return;
+        }
+        if (OperatingSystem.IsWindows()) TrySendStopSignal(process.Id);
         else process.CloseMainWindow();
         using var graceful = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try { await process.WaitForExitAsync(graceful.Token); }
@@ -63,15 +74,15 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
             await process.WaitForExitAsync(killed.Token);
         }
         ct.ThrowIfCancellationRequested();
+        if (_activeApiPort is int port) await LocalApiPort.WaitUntilReleasedAsync(port, TimeSpan.FromSeconds(3));
     }
 
-    // WPF has no console. Attach only to this GUI's own child's console, suppress our handler,
-    // send CTRL_C, and immediately detach. Never signal an external miner's console.
-    private static void TrySendCtrlC(int pid)
+    // Target the owned child's process group with CTRL_BREAK so the GUI never receives its own stop signal.
+    private static void TrySendStopSignal(int pid)
     {
         if (!AttachConsole((uint)pid)) return;
-        try { SetConsoleCtrlHandler(IntPtr.Zero, true); GenerateConsoleCtrlEvent(0, 0); }
-        finally { FreeConsole(); SetConsoleCtrlHandler(IntPtr.Zero, false); }
+        try { GenerateConsoleCtrlEvent(1, (uint)pid); }
+        finally { FreeConsole(); }
     }
     [LibraryImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool AttachConsole(uint pid);
     [LibraryImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool FreeConsole();

@@ -12,6 +12,7 @@ namespace SrbMinerMonitor.Core;
 public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
 {
     private SafeFileHandle? _job;
+    private uint _rootPid;
     public bool IsRunning => _job is { IsInvalid: false, IsClosed: false } && ActiveProcesses() > 0;
     public event Action<string>? Log;
 
@@ -51,6 +52,7 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
                 TerminateProcess(child.Process, 1);
                 throw new Win32Exception(code, "無法追蹤 BAT 子程序，已取消啟動。");
             }
+            _rootPid = child.ProcessId;
             if (ResumeThread(child.Thread) == uint.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         catch { _job.Dispose(); _job = null; throw; }
@@ -68,11 +70,16 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
     public async Task StopAsync(CancellationToken ct)
     {
         if (!IsRunning) return;
-        foreach (var pid in ProcessIds())
+        var processes = ProcessIds();
+        foreach (var pid in processes)
         {
             if (!AttachConsole(pid)) continue;
-            try { SetConsoleCtrlHandler(IntPtr.Zero, true); GenerateConsoleCtrlEvent(0, 0); }
-            finally { FreeConsole(); SetConsoleCtrlHandler(IntPtr.Zero, false); }
+            try
+            {
+                // Nonzero owned group IDs keep the GUI and unrelated console processes out of the signal.
+                foreach (var group in processes.Append(_rootPid).Where(group => group != 0).Distinct()) GenerateConsoleCtrlEvent(1, group);
+            }
+            finally { FreeConsole(); }
         }
         var watch = Stopwatch.StartNew();
         while (IsRunning && watch.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(100, CancellationToken.None);

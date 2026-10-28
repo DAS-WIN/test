@@ -167,6 +167,7 @@ internal static class Program
             if (!vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("Lost ownership when cmd exited before its child.");
             Console.WriteLine("PASS: detached START child remains owned after cmd exits.");
             await Execute(vm, vm.RestartCommand);
+            Console.WriteLine("Restart result: " + vm.Status + " / " + vm.Notice + " / " + vm.ApiStatus);
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("BAT restart failed.");
             await Execute(vm, vm.StopCommand);
@@ -193,7 +194,7 @@ internal static class Program
     {
         var until = DateTimeOffset.Now.AddSeconds(12);
         while (!vm.ApiStatus.StartsWith("API 已連線") && vm.Status.StartsWith("BAT 運行中") && DateTimeOffset.Now < until) await Task.Delay(50);
-        if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("API not ready: " + vm.Notice + " / " + vm.ApiStatus);
+        if (!vm.ApiStatus.StartsWith("API 已連線") || !vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("API not ready: " + vm.Status + " / " + vm.Notice + " / " + vm.ApiStatus);
     }
     private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject
     {

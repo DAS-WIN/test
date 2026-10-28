@@ -236,6 +236,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RememberSecret(_saved.Password);
         }
         Notice = _saved.UseBatchFile ? "正在啟動指定 BAT…" : "正在啟動礦工…";
+        _apiHealthy = false; ApiStatus = "等待新程序的 API…";
         await _controller.StartAsync(_saved);
         if (!_demo) _activeSettings = _saved;
         _nextPoll = default;
@@ -244,6 +245,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private async Task RestartSaved()
     {
         if (!_demo && _saved.Validate() is string error) throw new ArgumentException(error);
+        _apiHealthy = false; ApiStatus = "正在重啟，等待新程序的 API…";
         await _controller.RestartAsync(_saved);
         if (!_demo) _activeSettings = _saved;
         _nextPoll = default;
@@ -256,6 +258,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!_demo && _settingsLoaded) { _saved = _saved with { Restart = _restart }; await _store.SaveAsync(_saved); }
         _activeSettings = null;
         _apiHealthy = false;
+        ApiStatus = "礦工已停止，等待下一次 API 連線。";
         Notice = "礦工已停止，自動重啟已取消。";
     }
     private void Browse()
@@ -377,6 +380,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (restart)
         {
             if (!_controller.IsRunning) await EnsureApiPortFree(settings.ApiPort);
+            _apiHealthy = false; ApiStatus = "正在啟動，等待新程序的 API…";
             Notice = settings.UseBatchFile ? "正在停止舊程序並啟動指定 BAT…" : "正在重新啟動礦工…";
             await _controller.RestartAsync(settings);
             _activeSettings = settings;
