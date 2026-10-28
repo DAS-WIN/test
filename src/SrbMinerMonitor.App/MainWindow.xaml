@@ -13,7 +13,7 @@
     <StackPanel DockPanel.Dock="Bottom" Margin="16,0,16,20">
      <Border Background="#1C3038" CornerRadius="4" Padding="10,8"><TextBlock Text="● 本機 / Windows x64" Foreground="{StaticResource SuccessBrush}" FontSize="11"/></Border>
      <Button Content="停止並退出" Command="{Binding ExitCommand}" Background="Transparent" BorderThickness="0" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
-     <TextBlock Text="v0.1.4 · SRBMiner GUI" Style="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,12,0,0" FontSize="10"/>
+     <TextBlock Text="v0.1.5 · SRBMiner GUI" Style="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,12,0,0" FontSize="10"/>
     </StackPanel>
     <StackPanel>
      <Button Content="▦    總覽" Command="{Binding OverviewCommand}"><Button.Style><Style TargetType="Button" BasedOn="{StaticResource NavButton}"><Style.Triggers><DataTrigger Binding="{Binding IsOverview}" Value="True"><Setter Property="Background" Value="#213E4D"/><Setter Property="Foreground" Value="{StaticResource AccentBrush}"/></DataTrigger></Style.Triggers></Style></Button.Style></Button>

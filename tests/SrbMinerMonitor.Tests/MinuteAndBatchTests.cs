@@ -27,11 +27,22 @@ public sealed class MinuteAndBatchTests
     {
         var output = new MinerOutput();
         var snapshot = Snapshot(DateTimeOffset.Now, 100, Guid.NewGuid()) with { Shares = new(100, 2) };
+        output.Read("ID Name Hashrate Power Eff Fan Temp CClk MClk A R HW");
+        output.Read("#0 GPU 1 MH/s 100W 0.1 50% 60C 2000 9000 100 2 0");
         output.Reconcile(snapshot); output.Read("GPU0[t0] share accepted [ 213ms ][pearlhash][0]");
         Assert.Equal(101, output.Total.Accepted); Assert.Equal(101, output.Gpus[0].Accepted);
         output.Reconcile(snapshot); Assert.Equal(101, output.Total.Accepted);
         output.Reconcile(snapshot with { Shares = new(101, 2) }); Assert.Equal(101, output.Total.Accepted);
         output.Reset(); output.Read("GPU0[t0] share accepted"); Assert.Equal(1, output.Total.Accepted);
+    }
+    [Fact] public void ApiArrivingBeforeBufferedOutputDoesNotDoubleCountShare()
+    {
+        var output = new MinerOutput();
+        var snapshot = Snapshot(DateTimeOffset.Now, 100, Guid.NewGuid()) with { Shares = new(1, 0) };
+        output.Reconcile(snapshot); output.Read("GPU0[t0] share accepted");
+        Assert.Equal(1, output.Total.Accepted);
+        output.Read("GPU0[t0] share accepted"); Assert.Equal(2, output.Total.Accepted);
+        output.Reconcile(snapshot with { Shares = new(2, 0) }); Assert.Equal(2, output.Total.Accepted);
     }
     [Theory]
     [InlineData("GPU0[t0] share accepted [ 213ms ]", "成功")]

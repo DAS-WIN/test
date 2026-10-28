@@ -1,4 +1,4 @@
-# SRBMiner Monitor 0.1.4
+# SRBMiner Monitor 0.1.5
 
 繁體中文 Windows 桌面監控程式，使用自己的 SRBMiner BAT 啟動礦工。深灰／青藍介面包含總覽、挖礦設定與事件紀錄；本版已移除示範模式，以及演算法、錢包、GPU 等表單啟動方式。
 
@@ -57,4 +57,4 @@ pwsh ./scripts/Publish-Windows.ps1
 
 若無法啟動，執行 `Start-Diagnostics.cmd`，查看 `%LOCALAPPDATA%\SRBMiner Monitor\Logs\startup-*.log`，無法寫入時改用 `%TEMP%`。升級時先停止舊版並完整解壓新版到新資料夾，不要只替換 EXE。
 
-Windows 整合測試使用不挖礦、不連礦池的測試程序。真實 Windows 11／RTX 5080 的接受結果需實機試跑。詳見 [版本變更](docs/RELEASE-NOTES-0.1.4.md)、[資料來源](docs/DATA-SOURCES.md) 與 [驗證說明](docs/VERIFICATION.md)。
+Windows 整合測試使用不挖礦、不連礦池的測試程序。真實 Windows 11／RTX 5080 的接受結果需實機試跑。詳見 [版本變更](docs/RELEASE-NOTES-0.1.5.md)、[資料來源](docs/DATA-SOURCES.md) 與 [驗證說明](docs/VERIFICATION.md)。

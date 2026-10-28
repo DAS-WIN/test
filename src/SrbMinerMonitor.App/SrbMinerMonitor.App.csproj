@@ -7,7 +7,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>SRBMiner Monitor</AssemblyName>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <StartupObject>SrbMinerMonitor.App.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>

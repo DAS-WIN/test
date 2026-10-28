@@ -59,4 +59,4 @@ Windows 整合測試的 FakeMiner 僅提供固定格式的測試 API 與文字�
 
 產品僅使用 BAT；既有表單／演算法偵測與示範資料已移除。API 每秒核對分享及運行資訊；NVIDIA 感測器快取 5 秒。MinuteMetrics 在同一分鐘維持算力，在分鐘切換或 session 更換時接受新樣本，趨勢只加入該樣本。首次樣本即顯示，空白 API 會顯示等待初始化。
 
-本次程序的新輸出逐行辨識 share accepted／rejected／failed／timeout／timed out。事件列表只收這些分享結果，技術與生命週期訊息不混入事件。API 為分享計數建立累積基準，後續新分享在此基準上增加；API 與統計表用相同 session 的累積最大觀測值校正，避免較舊回應造成倒退或重複加總。
+本次程序的新輸出逐行辨識 share accepted／rejected／failed／timeout／timed out。事件列表只收這些分享結果，技術與生命週期訊息不混入事件。API 與輸出各自保留累積基準，輸出不從 API 計數上再加一次；兩者用相同 session 的累積最大觀測值校正，避免較舊回應造成倒退或重複加總。

@@ -7,14 +7,15 @@ public sealed partial class MinerOutput
 {
     private readonly Dictionary<int, ShareStats> _gpus = [];
     private bool _shareTable;
-    private ShareStats _total = new();
+    private ShareStats _total = new(), _api = new();
     public string? Pool { get; private set; }
     public IReadOnlyDictionary<int, ShareStats> Gpus => _gpus;
-    public ShareStats Total => Max(_total, new(Sum(s => s.Accepted), Sum(s => s.Rejected), Timeout: Sum(s => s.Timeout), HardwareErrors: Sum(s => s.HardwareErrors)));
+    public ShareStats Total => Max(_api, ObservedTotal);
+    private ShareStats ObservedTotal => Max(_total, new(Sum(s => s.Accepted), Sum(s => s.Rejected), Timeout: Sum(s => s.Timeout), HardwareErrors: Sum(s => s.HardwareErrors)));
     private long? Sum(Func<ShareStats, long?> field) => _gpus.Count == 0 || _gpus.Values.Any(s => field(s) is null)
         ? null : _gpus.Values.Sum(s => field(s)!.Value);
     public static string Clean(string line) => Ansi().Replace(line, "").TrimEnd('\r');
-    public void Reset(string? pool = null) { _gpus.Clear(); _total = new(); Pool = pool; _shareTable = false; }
+    public void Reset(string? pool = null) { _gpus.Clear(); _total = new(); _api = new(); Pool = pool; _shareTable = false; }
     public void Read(string line)
     {
         line = Clean(line);
@@ -26,7 +27,7 @@ public sealed partial class MinerOutput
             && long.TryParse(row.Groups[4].Value, out var hardware))
         {
             _gpus[rowId] = Max(_gpus.GetValueOrDefault(rowId), new(accepted, rejected, HardwareErrors: hardware));
-            _total = Total;
+            _total = ObservedTotal;
             return;
         }
         var share = Share().Match(line);
@@ -37,13 +38,11 @@ public sealed partial class MinerOutput
     }
     public void Reconcile(MinerSnapshot snapshot)
     {
-        _total = Max(Total, snapshot.Shares);
-        foreach (var gpu in snapshot.Gpus)
-        {
-            var stats = gpu.Shares ?? (snapshot.Gpus.Count == 1 ? snapshot.Shares : null);
-            if (stats is not null) _gpus[gpu.Id] = Max(_gpus.GetValueOrDefault(gpu.Id), stats);
-        }
+        // API can arrive before its buffered stdout line. Keep an independent baseline;
+        // feeding it into the output counter would count the same share twice.
+        _api = Max(_api, snapshot.Shares);
     }
+
     private static ShareStats Increment(ShareStats previous, string? outcome) => outcome switch
     {
         "成功" => previous with { Accepted = (previous.Accepted ?? 0) + 1 },

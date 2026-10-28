@@ -101,7 +101,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string Range { get => _range; set { Set(ref _range, value); Changed(nameof(ChartSamples)); } }
     public string ChartUnit => Metric == "算力" ? "H/s" : Metric == "功耗" ? "W" : "°C";
     public GpuRow? SelectedGpu { get => _selectedGpu; set { Set(ref _selectedGpu, value); Refresh(); } }
-    public IReadOnlyList<ChartSample> ChartSamples => History.Window(DateTimeOffset.Now, Range == "6 小時" ? TimeSpan.FromHours(6) : Range == "1 小時" ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(15))
+    public IReadOnlyList<ChartSample> ChartSamples => History.Window(_minuteMetrics.Snapshot?.Timestamp ?? DateTimeOffset.Now, Range == "6 小時" ? TimeSpan.FromHours(6) : Range == "1 小時" ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(15))
         .Select(s => { var gpu = SelectedGpu is null ? null : s.Gpus.FirstOrDefault(g => g.Id == SelectedGpu.Metrics.Id);
             var value = Metric switch { "功耗" => SelectedGpu is null ? s.TotalPower : gpu?.Power, "溫度" => SelectedGpu is null ? s.MaxTemperature : gpu?.Temperature, _ => SelectedGpu is null ? s.TotalHashrate : gpu?.Hashrate };
             return new ChartSample(s.Timestamp, value, s.Session); }).ToArray();
@@ -111,7 +111,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string Average6h => Average(TimeSpan.FromHours(6));
     private string Average(TimeSpan span)
     {
-        var (value, coverage) = History.Average(DateTimeOffset.Now, span, SelectedGpu?.Metrics.Id);
+        var (value, coverage) = History.Average(_minuteMetrics.Snapshot?.Timestamp ?? DateTimeOffset.Now, span, SelectedGpu?.Metrics.Id);
         return Display.Hash(value) + (value is null ? "" : $"  · {coverage.TotalMinutes:0.0} 分鐘樣本");
     }
     public bool ScheduleOpen { get => _scheduleOpen; set => Set(ref _scheduleOpen, value); }
