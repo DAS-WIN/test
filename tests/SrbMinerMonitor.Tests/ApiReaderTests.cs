@@ -8,6 +8,16 @@ namespace SrbMinerMonitor.Tests;
 public sealed class ApiReaderTests
 {
     [Fact]
+    public void LocalPortCheckDistinguishesListenerFromUnusedPortWithoutConnecting()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        Assert.Throws<InvalidOperationException>(() => LocalApiPort.EnsureAvailable(port));
+        listener.Stop();
+        LocalApiPort.EnsureAvailable(port);
+    }
+    [Fact]
     public async Task HttpReaderReturnsTheSnapshotAndRejectsRedirects()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);

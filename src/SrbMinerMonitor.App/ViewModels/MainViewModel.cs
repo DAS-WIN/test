@@ -385,13 +385,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             await Poll();
         }
     }
-    private static async Task EnsureApiPortFree(int port)
+    private static Task EnsureApiPortFree(int port)
     {
-        using var client = new TcpClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-        try { await client.ConnectAsync("127.0.0.1", port, timeout.Token); }
-        catch (SocketException) { return; }
-        throw new InvalidOperationException("API 連接埠已有程序使用。外部礦工僅供監控，請先關閉該礦工或變更連接埠。");
+        LocalApiPort.EnsureAvailable(port);
+        return Task.CompletedTask;
     }
     private async Task ExportEvents()
     {

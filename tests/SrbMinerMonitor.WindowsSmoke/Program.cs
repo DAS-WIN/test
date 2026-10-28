@@ -150,6 +150,7 @@ internal static class Program
         try
         {
             await Execute(vm, vm.SaveRestartCommand);
+            await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線") || vm.Hashrate == "—" || vm.Gpus.Count != 1 || !vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("BAT -> API -> dashboard failed: " + vm.Notice + " / " + vm.ApiStatus);
             await render("bat-settings"); vm.OverviewCommand.Execute(null); await render("bat-live-api-fixture");
             await Execute(vm, vm.StopCommand);
@@ -159,9 +160,11 @@ internal static class Program
             await File.WriteAllTextAsync(detached, $"@echo off\r\nstart \"\" /b \"%~dp0SRBMiner-MULTI.exe\" --api-enable --api-port {port}\r\nexit /b\r\n", Encoding.ASCII);
             vm.Settings.BatchFile = Path.GetFullPath(detached);
             await Execute(vm, vm.SaveRestartCommand);
+            await WaitForApi(vm);
             await Task.Delay(1000);
             if (!vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("Lost ownership when cmd exited before its child.");
             await Execute(vm, vm.RestartCommand);
+            await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("BAT restart failed.");
             await Execute(vm, vm.StopCommand);
             await AssertPortClosed(port);
@@ -180,6 +183,12 @@ internal static class Program
         try { await client.ConnectAsync(IPAddress.Loopback, port); }
         catch (SocketException) { return; }
         throw new InvalidOperationException("Owned BAT child is still listening after stop.");
+    }
+    private static async Task WaitForApi(MainViewModel vm)
+    {
+        var until = DateTimeOffset.Now.AddSeconds(12);
+        while (!vm.ApiStatus.StartsWith("API 已連線") && vm.Status.StartsWith("BAT 運行中") && DateTimeOffset.Now < until) await Task.Delay(50);
+        if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("API not ready: " + vm.Notice + " / " + vm.ApiStatus);
     }
     private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject
     {

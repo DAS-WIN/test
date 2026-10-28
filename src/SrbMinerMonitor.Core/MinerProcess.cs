@@ -15,15 +15,7 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
     {
         if (settings.Validate() is string error) throw new ArgumentException(error);
         if (IsRunning) throw new InvalidOperationException("已有受管理的礦工程序。");
-        using (var client = new TcpClient())
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(1));
-            var inUse = false;
-            try { await client.ConnectAsync("127.0.0.1", settings.ApiPort, timeout.Token); inUse = true; }
-            catch (SocketException) { }
-            if (inUse) throw new InvalidOperationException("API 連接埠已有程序使用，已取消啟動以避免重複礦工。");
-        }
+        LocalApiPort.EnsureAvailable(settings.ApiPort);
         _process?.Dispose();
         _process = null;
         _batch?.Dispose(); _batch = null;
