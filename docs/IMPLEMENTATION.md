@@ -37,3 +37,10 @@
 已在 Linux 執行 .NET 10 核心測試、完整 WPF 交叉編譯與 Windows x64 發布。0.1.1 另於 Windows Server 2025 的 GitHub Actions 執行實際 WPF 畫面與發布後 EXE 啟動檢查，詳見 VERIFICATION.md。使用者 Windows 11 上的系統匣互動、DPAPI 跨次啟動、CTRL_C 及實際 GPU／礦池端到端行為仍需實機驗收。
 
 `scripts/Smoke-Windows.ps1` 在 Windows 巡覽三頁與排程面板，檢查 WPF binding errors 並輸出 PNG。`scripts/Verify-PublishedStartup.ps1` 直接啟動發佈的 EXE，確認一般與示範模式完成視窗繪製並正常退出；私有 GitHub prerelease 僅在這些檢查通過後上傳。
+
+
+## 0.1.2
+
+WindowsBatchProcess 使用 suspended CreateProcess → AssignProcessToJobObject → ResumeThread 的順序，避免 BAT 先產生未被管理的子程序；以 Job 的活躍程序數判斷完整程序樹是否退出。cmd 的路徑由子程序專用環境變數單次展開，支援空白、Unicode、&、% 與 ! 路徑。
+
+設定儲存服務可注入測試目錄，Windows 煙霧測試不會覆寫執行者原有設定。唯讀探測進度與 API 輪詢狀態分開，探測不會覆蓋 API 資料，也不會由 API 連線失敗訊息蓋掉探測結果。

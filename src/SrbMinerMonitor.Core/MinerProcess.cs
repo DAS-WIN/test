@@ -7,7 +7,8 @@ namespace SrbMinerMonitor.Core;
 public sealed partial class MinerProcess : IMinerProcess, IDisposable
 {
     private Process? _process;
-    public bool IsRunning => _process is { HasExited: false };
+    private WindowsBatchProcess? _batch;
+    public bool IsRunning => _batch?.IsRunning ?? _process is { HasExited: false };
     public event Action<string>? Log;
 
     public async Task StartAsync(MinerSettings settings, CancellationToken ct)
@@ -24,6 +25,15 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
             if (inUse) throw new InvalidOperationException("API 連接埠已有程序使用，已取消啟動以避免重複礦工。");
         }
         _process?.Dispose();
+        _process = null;
+        _batch?.Dispose(); _batch = null;
+        if (settings.UseBatchFile)
+        {
+            _batch = new WindowsBatchProcess();
+            _batch.Log += message => Log?.Invoke(message);
+            await _batch.StartAsync(settings, ct);
+            return;
+        }
         var info = new ProcessStartInfo(settings.Executable)
         {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -34,8 +44,9 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
         var process = new Process { StartInfo = info };
         process.OutputDataReceived += (_, e) => { if (e.Data is { Length: > 0 } line) Log?.Invoke(line); };
         process.ErrorDataReceived += (_, e) => { if (e.Data is { Length: > 0 } line) Log?.Invoke(line); };
+        try { process.Start(); }
+        catch { process.Dispose(); throw; }
         _process = process;
-        process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         // Catch immediate startup failures before declaring a successful lifecycle transition.
@@ -45,6 +56,7 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
 
     public async Task StopAsync(CancellationToken ct)
     {
+        if (_batch is not null) { await _batch.StopAsync(ct); return; }
         var process = _process;
         if (process is null || process.HasExited) return;
         if (OperatingSystem.IsWindows()) TrySendCtrlC(process.Id);
@@ -73,5 +85,5 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
     [LibraryImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool FreeConsole();
     [LibraryImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool SetConsoleCtrlHandler(IntPtr handler, [MarshalAs(UnmanagedType.Bool)] bool add);
     [LibraryImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool GenerateConsoleCtrlEvent(uint signal, uint group);
-    public void Dispose() => _process?.Dispose();
+    public void Dispose() { _batch?.Dispose(); _process?.Dispose(); }
 }

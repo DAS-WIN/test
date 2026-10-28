@@ -13,6 +13,7 @@
     </StackPanel>
     <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}"><Run Text="運行時間  "/><Run Text="{Binding Uptime, Mode=OneWay}"/></TextBlock>
    </DockPanel>
+   <TextBlock Text="{Binding ApiStatus}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,10"/>
    <Border Background="#182D38" BorderBrush="#284A5C" BorderThickness="1" CornerRadius="6" Padding="14,11" Margin="0,0,0,18">
     <DockPanel><TextBlock Text="{Binding ScheduleDetail}" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}" FontSize="11"/><TextBlock Text="{Binding ScheduleSummary}" Foreground="{StaticResource AccentBrush}" FontSize="12"/></DockPanel>
    </Border>

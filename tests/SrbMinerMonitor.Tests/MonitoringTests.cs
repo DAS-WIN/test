@@ -90,7 +90,7 @@ public sealed class MonitoringTests
         Assert.Equal([0, 2], ExecutableProbe.ParseDevices("GPU0: NVIDIA RTX 5080\nGPU2: AMD Radeon RX 7900\n").Select(d => d.Id));
     [Fact] public void ArgumentsKeepValuesInSeparateElements()
     {
-        var settings = new MinerSettings { Executable = "miner.exe", Algorithm = "pearlhash", GpuIds = [2, 0], PoolHost = "pool.example.com", Wallet = "wallet with spaces", Worker = "$(never-run)" };
+        var settings = new MinerSettings { Executable = "miner.exe", Algorithm = "pearlhash", Algorithms = ["pearlhash"], AlgorithmSource = "miner.exe", GpuIds = [2, 0], PoolHost = "pool.example.com", Wallet = "wallet with spaces", Worker = "$(never-run)" };
         Assert.Null(settings.Validate(false));
         var args = settings.Arguments().ToArray();
         Assert.Equal("wallet with spaces", args[Array.IndexOf(args, "--wallet") + 1]);

@@ -12,7 +12,7 @@ namespace SrbMinerMonitor.App.ViewModels;
 
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
-    private readonly SettingsStore _store = new();
+    private readonly SettingsStore _store;
     private readonly MinerProcess _process = new();
     private readonly ApiReader _api = new();
     private readonly CancellationTokenSource _lifetime = new();
@@ -30,6 +30,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private Guid _lastControllerSession;
     private bool _settingsLoaded = true;
     private DateTimeOffset _nextPoll;
+    private bool _readingAlgorithms, _detectingDevices, _probeVisible;
+    private string _probeTitle = "讀取結果", _probeStatus = "尚未執行", _probeDetails = "", _apiStatus = "尚未連線 API";
     public SettingsViewModel Settings { get; } = new();
     public MetricHistory History { get; } = new();
     public ObservableCollection<GpuRow> Gpus { get; } = [];
@@ -46,6 +48,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand StopCommand { get; }
     public ICommand RestartCommand { get; }
     public ICommand BrowseCommand { get; }
+    public ICommand BrowseBatchCommand { get; }
+    public ICommand CreateMonitoringBatchCommand { get; }
+    public ICommand CopyApiArgumentsCommand { get; }
+    public ICommand CopyProbeCommand { get; }
+    public ICommand SwitchLiveCommand { get; }
     public ICommand ReadAlgorithmsCommand { get; }
     public ICommand DetectDevicesCommand { get; }
     public ICommand TestPoolCommand { get; }
@@ -62,13 +69,28 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public event Action? ExitRequested;
     public bool IsBusy { get => _busy; private set { Set(ref _busy, value); Refresh(); } }
     public bool IsDemo => _demo;
+    public bool IsLive => !_demo;
+    public bool ReadingAlgorithms { get => _readingAlgorithms; private set { Set(ref _readingAlgorithms, value); Changed(nameof(AlgorithmButtonText)); Changed(nameof(ProbeBusy)); } }
+    public bool DetectingDevices { get => _detectingDevices; private set { Set(ref _detectingDevices, value); Changed(nameof(DeviceButtonText)); Changed(nameof(ProbeBusy)); } }
+    public bool ProbeBusy => ReadingAlgorithms || DetectingDevices;
+    public string AlgorithmButtonText => ReadingAlgorithms ? "讀取中…" : "讀取支援演算法";
+    public string DeviceButtonText => DetectingDevices ? "偵測中…" : "偵測顯卡";
+    public bool ProbeVisible { get => _probeVisible; private set => Set(ref _probeVisible, value); }
+    public string ProbeTitle { get => _probeTitle; private set => Set(ref _probeTitle, value); }
+    public string ProbeStatus { get => _probeStatus; private set => Set(ref _probeStatus, value); }
+    public string ProbeDetails { get => _probeDetails; private set => Set(ref _probeDetails, value); }
+    public string ApiStatus { get => _apiStatus; private set => Set(ref _apiStatus, value); }
+    public string ApiEndpoint => $"http://127.0.0.1:{MonitoringSettings.ApiPort}";
+    public string StartRequirement { get { if (_demo) return "目前是示範模式，請先切換至實際監控。"; try { return Settings.ToSettings(_restart).Validate() ?? "已準備好，可儲存並啟動。"; } catch (ArgumentException e) { return e.Message; } } }
+    public string SaveStartText => _controller.IsRunning ? "儲存並重啟" : Settings.UseBatchFile ? "儲存並啟動 BAT" : "儲存並啟動";
+    public string SettingsFooterHint => _demo ? "示範模式不啟動礦工；請先切換至實際監控。唯讀偵測仍可執行。" : Settings.UseBatchFile ? "指定 BAT 模式：使用 BAT 的挖礦設定啟動。" : "儲存草稿不影響運行中的礦工。";
     public bool IsOverview => _page == "Overview";
     public bool IsSettings => _page == "Settings";
     public bool IsEvents => _page == "Events";
     public string Notice { get => _notice; private set => Set(ref _notice, value); }
-    public string ModeLabel => _demo ? "示範模式 · 模擬資料" : "本機監控";
-    public string ModeAction => _demo ? "結束示範模式" : "開啟示範模式";
-    public string Status => _controller.IsTransitioning ? "處理中" : _controller.IsRunning ? (_demo ? "模擬運行中" : "礦工運行中") :
+    public string ModeLabel => _demo ? "示範模式 · 模擬資料" : "實際監控";
+    public string ModeAction => _demo ? "切換至實際監控" : "開啟示範模式";
+    public string Status => _controller.IsTransitioning ? "處理中" : _controller.IsRunning ? (_demo ? "模擬運行中" : MonitoringSettings.UseBatchFile ? (_apiHealthy ? "BAT 運行中 · API 已連線" : "BAT 運行中 · 等待 API") : "礦工運行中") :
         !_demo && _apiHealthy ? "外部礦工 · 僅監控" : "礦工已停止";
     private MinerSettings MonitoringSettings => _activeSettings ?? _saved;
     public string RigTitle => (_demo ? "本機礦機" : MonitoringSettings.RigName) + " / " + (_snapshot?.Algorithm ?? (string.IsNullOrEmpty(MonitoringSettings.Algorithm) ? "尚未設定演算法" : MonitoringSettings.Algorithm));
@@ -89,8 +111,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string HardwareErrors => Display.Count(Shares.HardwareErrors);
     public string Acceptance => Display.Number(Shares.Acceptance, "%", "0.0");
     public string ShareTitle => SelectedGpu is null ? "全部 GPU 分享統計" : $"GPU #{SelectedGpu.Metrics.Id} 分享統計";
-    public string Pool => _snapshot?.Pool ?? (_demo ? "pool.example.com:3333" : string.IsNullOrEmpty(MonitoringSettings.PoolHost) ? "尚未設定" : MonitoringSettings.PoolAddress);
-    public string Worker => _demo ? "rig-01" : MonitoringSettings.Worker;
+    public string Pool => _snapshot?.Pool ?? (_demo ? "pool.example.com:3333" : MonitoringSettings.UseBatchFile ? "由 BAT 設定（API 未提供）" : string.IsNullOrEmpty(MonitoringSettings.PoolHost) ? "尚未設定" : MonitoringSettings.PoolAddress);
+    public string Worker => _demo ? "rig-01" : MonitoringSettings.UseBatchFile ? "由 BAT 設定" : MonitoringSettings.Worker;
     public string PoolStatus => _snapshot?.PoolConnected switch { true => "已連線", false => "已斷線", _ => "未提供" };
     public string Latency => Display.Number(_snapshot?.Latency, "ms", "0");
     public string LastShare => _snapshot?.LastShare?.ToLocalTime().ToString("HH:mm:ss") ?? "未提供";
@@ -132,9 +154,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ScheduleDetail => $"運行 {_restart.RunValue} {(_restart.Hours ? "小時" : "分鐘")} → 停止 {_restart.WaitMinutes} 分鐘 → 重新啟動";
     private string Countdown => $"{(int)_controller.Scheduler.Remaining.TotalHours:00}:{_controller.Scheduler.Remaining.Minutes:00}:{_controller.Scheduler.Remaining.Seconds:00}";
 
-    public MainViewModel()
+    public MainViewModel(SettingsStore? store = null)
     {
+        _store = store ?? new SettingsStore();
         _controller = CreateController(_process);
+        Settings.PropertyChanged += (_, _) => { Changed(nameof(SettingsFooterHint)); Changed(nameof(SaveStartText)); Changed(nameof(StartRequirement)); CommandManager.InvalidateRequerySuggested(); };
         _process.Log += line => Application.Current.Dispatcher.BeginInvoke(() => AddEvent(Classify(line), line));
         AsyncCommand Command(Func<Task> action, Func<bool>? can = null) => new(() => Busy(action), ShowError, () => !IsBusy && (can?.Invoke() ?? true));
         OverviewCommand = new RelayCommand(() => Navigate("Overview"));
@@ -144,10 +168,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StopCommand = Command(Stop, () => _controller.IsRunning || _controller.Scheduler.Armed);
         RestartCommand = Command(RestartSaved, () => _controller.IsRunning);
         BrowseCommand = new RelayCommand(Browse, () => !IsBusy);
-        ReadAlgorithmsCommand = Command(ReadAlgorithms, () => !_demo);
-        DetectDevicesCommand = Command(DetectDevices, () => !_demo);
-        TestPoolCommand = Command(TestPool, () => !_demo);
-        SaveCommand = Command(() => Save(false), () => !_demo);
+        BrowseBatchCommand = Command(BrowseBatch);
+        CreateMonitoringBatchCommand = Command(CreateMonitoringBatch);
+        CopyApiArgumentsCommand = Command(() => { if (!int.TryParse(Settings.ApiPort, out var port) || port is < 1 or > 65535) throw new ArgumentException("請填入有效 API 連接埠。"); Clipboard.SetText($"--api-enable --api-port {port}"); Notice = "已複製 API 參數，請加入 BAT 的 SRBMiner 指令。"; return Task.CompletedTask; });
+        CopyProbeCommand = Command(() => { Clipboard.SetText(ProbeDetails); return Task.CompletedTask; }, () => ProbeDetails.Length > 0);
+        SwitchLiveCommand = Command(async () => { if (_demo) await ToggleDemo(); }, () => _demo);
+        ReadAlgorithmsCommand = Command(ReadAlgorithms);
+        DetectDevicesCommand = Command(DetectDevices);
+        TestPoolCommand = Command(TestPool);
+        SaveCommand = Command(() => Save(false));
         SaveRestartCommand = Command(() => Save(true), () => !_demo && SettingsValid());
         CancelSettingsCommand = new RelayCommand(() => { Settings.Load(_saved); Notice = "已恢復最近儲存的設定。"; }, () => !IsBusy);
         ExportCommand = Command(ExportEvents);
@@ -166,6 +195,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         LoadScheduleFields();
         if (demo) await ToggleDemo();
         _ = MonitorLoop();
+        if (Settings.UseBatchFile && File.Exists(Settings.BatchFile)) await InspectBatch();
     }
     private MinerController CreateController(IMinerProcess process)
     {
@@ -205,9 +235,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             await EnsureApiPortFree(_saved.ApiPort);
             RememberSecret(_saved.Password);
         }
+        Notice = _saved.UseBatchFile ? "正在啟動指定 BAT…" : "正在啟動礦工…";
         await _controller.StartAsync(_saved);
         if (!_demo) _activeSettings = _saved;
         _nextPoll = default;
+        if (!_demo) { Notice = _saved.UseBatchFile ? "已啟動指定 BAT，等待本機 API。" : "已啟動礦工，等待本機 API。"; await Poll(); }
     }
     private async Task RestartSaved()
     {
@@ -215,6 +247,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         await _controller.RestartAsync(_saved);
         if (!_demo) _activeSettings = _saved;
         _nextPoll = default;
+        if (!_demo) { Notice = _saved.UseBatchFile ? "已啟動指定 BAT，等待本機 API。" : "已啟動礦工，等待本機 API。"; await Poll(); }
     }
     private async Task Stop()
     {
@@ -230,26 +263,91 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var dialog = new OpenFileDialog { Filter = "SRBMiner 執行檔 (*.exe)|*.exe", Title = "選擇官方 SRBMiner-MULTI.exe" };
         if (dialog.ShowDialog() == true) Settings.Executable = dialog.FileName;
     }
+    private async Task BrowseBatch()
+    {
+        var dialog = new OpenFileDialog { Filter = "BAT / CMD 檔案 (*.bat;*.cmd)|*.bat;*.cmd", Title = "選擇已建立的挖礦 BAT" };
+        if (dialog.ShowDialog() != true) return;
+        Settings.BatchFile = dialog.FileName; Settings.UseBatchFile = true;
+        await InspectBatch();
+    }
+    private async Task InspectBatch()
+    {
+        var path = Path.GetFullPath(Settings.BatchFile);
+        if (new FileInfo(path).Length > 1024 * 1024) throw new FormatException("BAT 超過 1 MB，請確認檔案內容。");
+        var info = BatchFileInspector.Inspect(await File.ReadAllTextAsync(path), Path.GetDirectoryName(path)!);
+        if (info.ApiPort is int port) Settings.ApiPort = port.ToString();
+        if (info.Executable is string exe && File.Exists(exe)) Settings.Executable = exe;
+        Settings.BatchHint = info.ApiEnabled ? $"已找到 --api-enable；監控連接埠 {Settings.ApiPort}。儲存後即可啟動。" :
+            "此 BAT 未明確啟用 API。請建立監控副本，或把複製的 API 參數加入 SRBMiner 指令。";
+        Notice = Settings.BatchHint;
+    }
+    private async Task CreateMonitoringBatch()
+    {
+        var source = Path.GetFullPath(Settings.BatchFile);
+        if (!File.Exists(source)) throw new ArgumentException("請先選擇 BAT 檔案。");
+        if (!int.TryParse(Settings.ApiPort, out var port) || port is < 1 or > 65535) throw new ArgumentException("請填入有效 API 連接埠。");
+        var bytes = BatchFileInspector.CreateMonitoringCopy(await File.ReadAllBytesAsync(source), port);
+        var dialog = new SaveFileDialog { Filter = "BAT 檔案 (*.bat)|*.bat", InitialDirectory = Path.GetDirectoryName(source), FileName = Path.GetFileNameWithoutExtension(source) + ".monitor.bat", Title = "將監控副本另存於原 BAT 的資料夾" };
+        if (dialog.ShowDialog() != true) return;
+        if (string.Equals(Path.GetFullPath(dialog.FileName), source, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("請使用新檔名，保留原 BAT。");
+        if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(dialog.FileName)), Path.GetDirectoryName(source), StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("請存於原 BAT 的相同資料夾，以保留 %~dp0 與相對路徑的意義。");
+        await File.WriteAllBytesAsync(dialog.FileName, bytes);
+        Settings.BatchFile = dialog.FileName;
+        await InspectBatch();
+        Notice = "已建立並選用監控副本；原 BAT 保留。切換實際監控後，按「儲存並啟動」運行。";
+    }
     private async Task ReadAlgorithms()
     {
-        Notice = "正在讀取支援演算法，最多等待 10 秒…";
-        var source = Settings.Executable;
-        var names = ExecutableProbe.ParseAlgorithms(await ExecutableProbe.RunAsync(source, "--list-algorithms", _lifetime.Token));
-        if (source != Settings.Executable) throw new InvalidOperationException("執行檔已變更，請重新讀取。");
-        var previous = Settings.Algorithm;
-        Settings.SetAlgorithms(names, source);
-        Notice = string.IsNullOrEmpty(Settings.Algorithm) && !string.IsNullOrEmpty(previous) ? "原演算法已不在清單，請重新選擇。" : $"已讀取 {names.Length} 個演算法，請選擇後儲存。";
+        ReadingAlgorithms = true;
+        try
+        {
+            await RunProbe("讀取支援演算法", "--list-algorithms", output =>
+            {
+                var names = ExecutableProbe.ParseAlgorithms(output);
+                var previous = Settings.Algorithm;
+                Settings.SetAlgorithms(names, Settings.Executable);
+                return $"完成：取得 {names.Length} 個演算法。" + (Settings.Algorithm.Length == 0 && previous.Length > 0 ? "原選項已不支援，請重新選擇。" : "請從清單選擇後儲存。");
+            });
+        }
+        finally { ReadingAlgorithms = false; }
     }
     private async Task DetectDevices()
     {
+        DetectingDevices = true;
+        try
+        {
+            await RunProbe("偵測顯卡", "--list-devices", output =>
+            {
+                var devices = ExecutableProbe.ParseDevices(output);
+                var selected = Settings.GpuIds.Split(',').Select(s => s.Trim()).ToHashSet();
+                Settings.Devices.Clear();
+                foreach (var d in devices) Settings.Devices.Add(new(d.Id, d.Name, selected.Contains(d.Id.ToString()), () => Settings.GpuIds = string.Join(',', Settings.Devices.Where(g => g.Selected).Select(g => g.Id))));
+                return $"完成：辨識 {devices.Count} 張 GPU，請勾選要使用的裝置。";
+            });
+        }
+        finally { DetectingDevices = false; }
+    }
+    private async Task RunProbe(string title, string argument, Func<string, string> apply)
+    {
+        ProbeVisible = true; ProbeTitle = title; ProbeStatus = "執行中…最多等待 10 秒";
         var source = Settings.Executable;
-        var devices = ExecutableProbe.ParseDevices(await ExecutableProbe.RunAsync(source, "--list-devices", _lifetime.Token));
-        if (source != Settings.Executable) throw new InvalidOperationException("執行檔已變更，請重新偵測顯卡。");
-        var selected = Settings.GpuIds.Split(',').Select(s => s.Trim()).ToHashSet();
-        Settings.Devices.Clear();
-        foreach (var d in devices) Settings.Devices.Add(new(d.Id, d.Name, selected.Contains(d.Id.ToString()), () =>
-            Settings.GpuIds = string.Join(',', Settings.Devices.Where(g => g.Selected).Select(g => g.Id))));
-        Notice = $"已辨識 {devices.Count} 張 GPU；請勾選要使用的裝置。";
+        ProbeDetails = $"執行檔：{source}\n參數：{argument}\n正在等待 stdout / stderr…";
+        Notice = title + "：執行中…";
+        try
+        {
+            var result = await ExecutableProbe.ExecuteAsync(source, argument, _lifetime.Token);
+            ProbeDetails = $"執行檔：{source}\n參數：{argument}\n{Redact(result.Details)}";
+            result.EnsureSuccess();
+            if (!source.Equals(Settings.Executable, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("執行檔已變更，請重新執行；原清單保留。");
+            ProbeStatus = apply(result.Output);
+            Notice = ProbeStatus;
+        }
+        catch (Exception e)
+        {
+            ProbeStatus = "失敗：" + Redact(e.Message);
+            ProbeDetails += "\n\n" + Redact(e.Message);
+            Notice = ProbeStatus; AddEvent("錯誤", title + "：" + e.Message);
+        }
     }
     private async Task TestPool()
     {
@@ -279,10 +377,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (restart)
         {
             if (!_controller.IsRunning) await EnsureApiPortFree(settings.ApiPort);
+            Notice = settings.UseBatchFile ? "正在停止舊程序並啟動指定 BAT…" : "正在重新啟動礦工…";
             await _controller.RestartAsync(settings);
             _activeSettings = settings;
             _nextPoll = default;
-            Notice = "設定已儲存，礦工已重新啟動。";
+            Notice = settings.UseBatchFile ? "已啟動指定 BAT，等待 API 連線。" : "設定已儲存，礦工已重新啟動。";
+            await Poll();
         }
     }
     private static async Task EnsureApiPortFree(int port)
@@ -353,7 +453,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     }
                 }
                 catch (Exception e) when (e is not OperationCanceledException) { ShowError(e); }
-                if (DateTimeOffset.Now >= _nextPoll && !IsBusy) await Poll();
+                if (DateTimeOffset.Now >= _nextPoll && !_controller.IsTransitioning) await Poll();
                 Refresh();
             }
         }
@@ -381,6 +481,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (controller != _controller || demo != _demo) return;
             if (!_apiHealthy) AddEvent("連線", demo ? "示範資料更新已啟用。" : "API 已連線；礦池連線狀態需另有來源確認。");
             _apiHealthy = true;
+            ApiStatus = demo ? "示範資料（沒有連接實際 API）" : $"API 已連線 · {snapshot.Timestamp:HH:mm:ss}";
             if (_snapshot is null || _lastControllerSession != controller.Session) _lastSession = controller.Session;
             else if (_snapshot is { } previous && snapshot.UptimeSeconds < previous.UptimeSeconds)
             {
@@ -401,13 +502,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (controller != _controller) return;
             if (_apiHealthy) AddEvent("連線", "API 更新失敗，保留最後讀值。" + e.Message);
             _apiHealthy = false;
-            if (_snapshot is null && !IsBusy) Notice = demo ? "模擬礦工已停止。" : "尚未連接 API。請設定並啟動礦工；也可以先開啟示範模式。";
+            ApiStatus = demo ? "模擬礦工已停止" : "API 尚未連線：" + Redact(e.Message) + (MonitoringSettings.UseBatchFile ? " 請確認 BAT 含 --api-enable，且 API 連接埠一致。" : " 請設定並啟動礦工。");
         }
         Refresh();
     }
     private void Refresh()
     {
-        foreach (var property in new[] { nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(Worker), nameof(PoolStatus), nameof(Latency), nameof(LastShare), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(IsDemo), nameof(ModeLabel), nameof(ModeAction) }) Changed(property);
+        foreach (var property in new[] { nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(Worker), nameof(PoolStatus), nameof(Latency), nameof(LastShare), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(IsDemo), nameof(ModeLabel), nameof(ModeAction), nameof(IsLive), nameof(ApiEndpoint), nameof(SettingsFooterHint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
         CommandManager.InvalidateRequerySuggested();
     }
     public void Dispose() { _lifetime.Cancel(); _api.Dispose(); _process.Dispose(); _lifetime.Dispose(); }

@@ -36,6 +36,15 @@ nvidia-smi --query-gpu=pci.bus_id,name,power.draw,fan.speed,temperature.gpu,cloc
 
 stdout／stderr 僅記錄新增事件，不與 API 統計相加。accepted／rejected／connect／error 關鍵字只用於事件分類，不產生分享數值。
 
-文字清單解析支援逐行名稱、編號與常見表格列。辨識失敗會保留既有清單；演算法與 GPU ID 也可手動輸入。曾以官方 Linux 3.8.0 僅嘗試列出演算法／裝置，環境回報 `Unsupported runtime environment`，未取得可用真實樣本，不能標記實機相容性通過。該礦工沒有放入原始碼或交付套件。
+文字清單解析支援逐行名稱、編號與常見表格列。辨識失敗會保留既有清單；GPU ID 可手動輸入，演算法只能從已讀取清單選擇。曾以官方 Linux 3.8.0 僅嘗試列出演算法／裝置，環境回報 `Unsupported runtime environment`，未取得可用真實樣本，不能標記實機相容性通過。該礦工沒有放入原始碼或交付套件。
 
 後續請以 Windows 3.8.0 的 API JSON、兩種清單輸出與去識別化分享日誌建立版本 fixture，再擴充已驗證欄位。
+
+
+## 指定 BAT
+
+BAT 依原始內容執行，啟動工作目錄為 BAT 所在資料夾。GUI 讀取相同 API，不解析錢包來替換使用者參數。未提供礦池／Worker 實際值時顯示「由 BAT 設定」，不使用表單欄位冒充該 BAT 的設定。
+
+監控副本只針對恰好一個可辨識的 SRBMiner 指令插入 API 參數，忽略 echo／rem 與 if 檔案檢查，保留其他原始位元組。複合命令、無法確認的 API 變數或多個礦工命令會要求手動確認。
+
+Windows 整合測試的 FakeMiner 僅提供固定格式的測試 API 與文字清單，不做雜湊運算、不連礦池，也不包含在 GUI 可攜式套件內。

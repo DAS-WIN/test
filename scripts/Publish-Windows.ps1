@@ -13,7 +13,10 @@ try {
     Copy-Item docs $portable -Recurse -Force
     Copy-Item scripts/Start-Demo.cmd $portable
     Copy-Item scripts/Start-Diagnostics.cmd $portable
-    $zip = Join-Path $outRoot 'SRBMinerMonitor-0.1.1-win-x64.zip'
+    Copy-Item scripts/Start-Real.cmd $portable
+    [xml]$project = Get-Content src/SrbMinerMonitor.App/SrbMinerMonitor.App.csproj
+    $version = [string]$project.Project.PropertyGroup.Version
+    $zip = Join-Path $outRoot "SRBMinerMonitor-$version-win-x64.zip"
     Compress-Archive -Path (Join-Path $portable '*') -DestinationPath $zip -Force
     Get-FileHash $zip -Algorithm SHA256
 } finally { Pop-Location }

@@ -42,6 +42,8 @@ public sealed record RestartOptions(bool Enabled = false, int RunValue = 6, bool
 
 public sealed record MinerSettings
 {
+    public bool UseBatchFile { get; init; }
+    public string BatchFile { get; init; } = "";
     public string Executable { get; init; } = "";
     public string RigName { get; init; } = "rig-01";
     public string Algorithm { get; init; } = "";
@@ -60,8 +62,17 @@ public sealed record MinerSettings
 
     public string? Validate(bool checkFile = true)
     {
+        if (ApiPort is < 1 or > 65535) return "API 連接埠必須介於 1 與 65535。";
+        if (UseBatchFile)
+        {
+            if (string.IsNullOrWhiteSpace(BatchFile) || !new[] { ".bat", ".cmd" }.Contains(Path.GetExtension(BatchFile), StringComparer.OrdinalIgnoreCase) || (checkFile && !File.Exists(BatchFile)))
+                return "請選擇有效的 BAT 或 CMD 檔案。";
+            return null;
+        }
         if (string.IsNullOrWhiteSpace(Executable) || (checkFile && !File.Exists(Executable))) return "請選擇有效的 SRBMiner 執行檔。";
         if (string.IsNullOrWhiteSpace(Algorithm) || Algorithm.IndexOfAny([';', ',', ' ', '\r', '\n']) >= 0) return "請選擇單一演算法。";
+        if (!Algorithms.Contains(Algorithm, StringComparer.OrdinalIgnoreCase)) return "請先讀取支援演算法，再從清單選擇。";
+        if (!AlgorithmSource.Equals(Executable, StringComparison.OrdinalIgnoreCase)) return "執行檔已變更，請重新讀取支援演算法。";
         if (GpuIds.Length == 0 || GpuIds.Any(id => id < 0)) return "請至少選擇一張 GPU。";
         if (string.IsNullOrWhiteSpace(PoolHost) || Uri.CheckHostName(PoolHost) == UriHostNameType.Unknown) return "請填入礦池主機名稱或 IP（不含通訊協定與連接埠）。";
         if (PoolPort is < 1 or > 65535 || ApiPort is < 1 or > 65535) return "連接埠必須介於 1 與 65535。";

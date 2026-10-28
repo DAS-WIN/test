@@ -4,7 +4,7 @@
 
 | 檢查 | 結果 |
 | --- | --- |
-| 核心自動測試 | 34 通過、0 失敗、0 略過 |
+| 核心自動測試 | 43 通過、0 失敗、0 略過 |
 | 完整 Solution 建置 | 成功，0 警告、0 錯誤 |
 | Windows x64 self-contained 發布 | 成功 |
 | Windows WPF 煙霧測試 | 通過，已重現預設 Run.Text 綁定唯讀屬性的例外，並驗證 OneWay 修正 |
@@ -25,3 +25,8 @@ dotnet publish src/SrbMinerMonitor.App -c Release -r win-x64 --self-contained tr
 ```
 
 Windows 驗證使用 GitHub Actions 的 Windows Server 2025（10.0.26100）與 .NET 10.0.403。首次修正提交 ff77e05 的 [Windows 執行紀錄](https://github.com/DAS-WIN/test/actions/runs/40684801127) 已通過畫面與發布後 EXE 啟動檢查。這不代表已在使用者的 Windows 11／RTX 5080 上完成實際挖礦測試；其餘項目仍依 WINDOWS-VALIDATION.md 驗收。
+
+
+## 0.1.2 新增驗證
+
+新增使用者 BAT 的去識別化結構測試：if 檔案檢查、%~dp0、pause、既有參數、API 副本與原始編碼保留。另加入 Windows 端深色樣式、唯讀選單、探測成功／空輸出／stderr／逾時、BAT Job 子程序生命週期與 API 到總覽的整合檢查。Windows 流程由本版本的 CI 實際執行，通過後才會建立 GitHub prerelease，驗證輸出隨版本附上。

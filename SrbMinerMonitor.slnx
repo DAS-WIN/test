@@ -4,6 +4,7 @@
     <Project Path="src/SrbMinerMonitor.Core/SrbMinerMonitor.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SrbMinerMonitor.FakeMiner/SrbMinerMonitor.FakeMiner.csproj" />
     <Project Path="tests/SrbMinerMonitor.Tests/SrbMinerMonitor.Tests.csproj" />
     <Project Path="tests/SrbMinerMonitor.WindowsSmoke/SrbMinerMonitor.WindowsSmoke.csproj" />
   </Folder>

@@ -10,11 +10,12 @@ namespace SrbMinerMonitor.App;
 
 public partial class MainWindow : Window
 {
-    private readonly MainViewModel _viewModel = new();
+    private readonly MainViewModel _viewModel;
     private readonly Forms.NotifyIcon? _tray;
     private bool _allowClose, _notified;
-    public MainWindow(bool demo)
+    public MainWindow(bool demo, SettingsStore? store = null)
     {
+        _viewModel = new MainViewModel(store);
         InitializeComponent();
         DataContext = _viewModel;
         SourceInitialized += (_, _) =>

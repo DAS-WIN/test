@@ -33,7 +33,7 @@ jobs:
       - run: ./scripts/Verify-PublishedStartup.ps1
         shell: pwsh
       - name: Publish verified private prerelease
-        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/srbminer-startup'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/bat-monitoring'
         run: ./scripts/Publish-GitHubRelease.ps1
         shell: pwsh
         env:

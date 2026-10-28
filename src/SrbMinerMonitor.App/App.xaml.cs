@@ -1,4 +1,5 @@
 using System.Windows;
+using System.IO;
 using SrbMinerMonitor.App.Services;
 using SrbMinerMonitor.App.ViewModels;
 
@@ -9,7 +10,8 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        var window = new MainWindow(e.Args.Contains("--demo"));
+        var window = new MainWindow(e.Args.Contains("--demo"), e.Args.Contains("--verify-startup")
+            ? new SettingsStore(Path.Combine(Path.GetTempPath(), "SRBMiner-verify-" + Guid.NewGuid().ToString("N"))) : null);
         StartupDiagnostics.Write("Main window constructed.");
         if (e.Args.Contains("--verify-startup"))
         {

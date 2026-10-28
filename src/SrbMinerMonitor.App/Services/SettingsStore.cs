@@ -8,7 +8,8 @@ namespace SrbMinerMonitor.App.Services;
 
 public sealed class SettingsStore
 {
-    public string DirectoryPath { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SRBMiner Monitor");
+    public string DirectoryPath { get; }
+    public SettingsStore(string? directory = null) => DirectoryPath = directory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SRBMiner Monitor");
     private string FilePath => Path.Combine(DirectoryPath, "settings.json");
     public async Task<MinerSettings> LoadAsync()
     {

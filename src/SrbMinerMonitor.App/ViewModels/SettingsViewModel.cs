@@ -7,8 +7,15 @@ public sealed class SettingsViewModel : ObservableObject
 {
     private string _executable = "", _algorithm = "", _rigName = "rig-01", _poolHost = "", _poolPort = "3333", _wallet = "", _worker = "rig-01", _password = "", _apiPort = "21550", _gpuIds = "";
     private bool _tls;
+    private bool _useBatchFile;
+    private string _batchFile = "", _batchHint = "選擇已建立的 BAT，使用其中的礦池、錢包與裝置參數。";
+    public bool UseBatchFile { get => _useBatchFile; set { if (Set(ref _useBatchFile, value)) { Changed(nameof(IsFormMode)); Changed(nameof(LaunchHint)); } } }
+    public bool IsFormMode => !UseBatchFile;
+    public string BatchFile { get => _batchFile; set => Set(ref _batchFile, value); }
+    public string BatchHint { get => _batchHint; set => Set(ref _batchHint, value); }
+    public string LaunchHint => UseBatchFile ? "依 BAT 內容啟動；下方表單的演算法、錢包與 GPU 不會覆蓋 BAT。" : "使用下方表單設定啟動 SRBMiner。";
     public string Executable { get => _executable; set { if (Set(ref _executable, value)) Changed(nameof(AlgorithmHint)); } }
-    public string Algorithm { get => _algorithm; set => Set(ref _algorithm, value); }
+    public string Algorithm { get => _algorithm; set => Set(ref _algorithm, value ?? ""); }
     public string RigName { get => _rigName; set => Set(ref _rigName, value); }
     public string PoolHost { get => _poolHost; set => Set(ref _poolHost, value); }
     public string PoolPort { get => _poolPort; set => Set(ref _poolPort, value); }
@@ -35,11 +42,12 @@ public sealed class SettingsViewModel : ObservableObject
 
     public void Load(MinerSettings s)
     {
+        UseBatchFile = s.UseBatchFile; BatchFile = s.BatchFile;
         Executable = s.Executable; RigName = s.RigName; PoolHost = s.PoolHost; PoolPort = s.PoolPort.ToString();
         Wallet = s.Wallet; Worker = s.Worker; Password = s.Password; Tls = s.Tls; ApiPort = s.ApiPort.ToString();
         GpuIds = string.Join(',', s.GpuIds); Algorithms.Clear();
         foreach (var algorithm in s.Algorithms) Algorithms.Add(algorithm);
-        Algorithm = s.Algorithm; AlgorithmSource = s.AlgorithmSource;
+        Algorithm = s.Algorithms.Contains(s.Algorithm, StringComparer.OrdinalIgnoreCase) ? s.Algorithm : ""; AlgorithmSource = s.AlgorithmSource;
         Devices.Clear(); Changed(nameof(AlgorithmHint));
     }
     public void SetAlgorithms(string[] algorithms, string source)
@@ -51,15 +59,17 @@ public sealed class SettingsViewModel : ObservableObject
     }
     public MinerSettings ToSettings(RestartOptions restart)
     {
-        if (!int.TryParse(ApiPort, out var api) || api is < 1 or > 65535 || !int.TryParse(PoolPort, out var pool) || pool is < 1 or > 65535)
+        if (!int.TryParse(ApiPort, out var api) || api is < 1 or > 65535 )
             throw new ArgumentException("API 與礦池連接埠必須介於 1–65535。");
+        var pool = 3333;
+        if (!UseBatchFile && (!int.TryParse(PoolPort, out pool) || pool is < 1 or > 65535)) throw new ArgumentException("請填入有效礦池連接埠。");
         var ids = new List<int>();
-        foreach (var token in GpuIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var token in UseBatchFile ? Array.Empty<string>() : GpuIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (!int.TryParse(token, out var id) || id < 0) throw new ArgumentException("GPU ID 請使用以逗號分隔的非負整數。");
             ids.Add(id);
         }
-        return new() { Executable = Executable.Trim(), Algorithm = Algorithm.Trim(), RigName = RigName.Trim(),
+        return new() { UseBatchFile = UseBatchFile, BatchFile = BatchFile.Trim(), Executable = Executable.Trim(), Algorithm = Algorithm.Trim(), RigName = RigName.Trim(),
             PoolHost = PoolHost.Trim(), PoolPort = pool, Wallet = Wallet.Trim(), Worker = Worker.Trim(), Password = Password,
             Tls = Tls, ApiPort = api, GpuIds = ids.Distinct().Order().ToArray(), Algorithms = Algorithms.ToArray(),
             AlgorithmSource = AlgorithmSource, Restart = restart };
