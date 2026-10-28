@@ -34,10 +34,11 @@ internal static class Program
         var errors = new BindingErrors();
         PresentationTraceSources.DataBindingSource.Listeners.Add(errors);
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
-        var app = new SrbMinerMonitor.App.App();
+        var app = new TestApplication();
         app.InitializeComponent();
         // Initialize resources without invoking App.OnStartup, which would open a second window.
         var window = new MainWindow( new SettingsStore(Path.Combine(output, "isolated-settings")));
+        app.MainWindow = window;
         var vm = (MainViewModel)window.DataContext;
         var result = 0;
         window.Loaded += async (_, _) =>
@@ -332,6 +333,12 @@ internal static class Program
         public List<string> Messages { get; } = [];
         public override void Write(string? message) { if (!string.IsNullOrEmpty(message)) Messages.Add(message); }
         public override void WriteLine(string? message) => Write(message);
+    }
+    private sealed class TestApplication : SrbMinerMonitor.App.App
+    {
+        // Application queues OnStartup even when a test pumps a DispatcherFrame instead of Run().
+        // Own exactly the test window; do not let production OnStartup open a second one.
+        protected override void OnStartup(StartupEventArgs e) { }
     }
     private static class Native
     {
