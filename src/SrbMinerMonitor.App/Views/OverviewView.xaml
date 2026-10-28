@@ -13,7 +13,7 @@
     </StackPanel>
     <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}"><Run Text="運行時間  "/><Run Text="{Binding Uptime, Mode=OneWay}"/></TextBlock>
    </DockPanel>
-   <TextBlock Text="{Binding HashrateUpdate, StringFormat=算力更新時間：{0}}" Style="{StaticResource Muted}" Margin="0,0,0,8"/>
+   <TextBlock Text="{Binding HashrateUpdate, StringFormat=硬體資訊更新時間：{0}}" Style="{StaticResource Muted}" Margin="0,0,0,8"/>
    <TextBlock Text="{Binding ApiStatus}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,10"/>
    <Border Background="#182D38" BorderBrush="#284A5C" BorderThickness="1" CornerRadius="6" Padding="14,11" Margin="0,0,0,18">
     <DockPanel><TextBlock Text="{Binding ScheduleDetail}" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}" FontSize="11"/><TextBlock Text="{Binding ScheduleSummary}" Foreground="{StaticResource AccentBrush}" FontSize="12"/></DockPanel>
@@ -25,7 +25,7 @@
     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
    </StackPanel></Border>
    <UniformGrid x:Name="SummaryCards" Columns="4" Margin="0,0,-12,18">
-    <Border Style="{StaticResource Panel}" Margin="0,0,12,0"><StackPanel><TextBlock Text="總算力" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Hashrate}" Foreground="{StaticResource AccentBrush}" FontSize="27" FontWeight="SemiBold" Margin="0,12,0,8"/><TextBlock Text="每分鐘切換時更新" Style="{StaticResource Muted}" FontSize="10"/></StackPanel></Border>
+    <Border Style="{StaticResource Panel}" Margin="0,0,12,0"><StackPanel><TextBlock Text="總算力" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Hashrate}" Foreground="{StaticResource AccentBrush}" FontSize="27" FontWeight="SemiBold" Margin="0,12,0,8"/><TextBlock Text="{Binding MetricRefreshSummary}" Style="{StaticResource Muted}" FontSize="10"/></StackPanel></Border>
     <Border Style="{StaticResource Panel}" Margin="0,0,12,0"><StackPanel><TextBlock Text="GPU 總功耗" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Power}" FontSize="27" FontWeight="SemiBold" Margin="0,12,0,8"/><TextBlock Text="顯卡感測值 · 非整機耗電" Style="{StaticResource Muted}" FontSize="10"/></StackPanel></Border>
     <Border Style="{StaticResource Panel}" Margin="0,0,12,0"><StackPanel><TextBlock Text="整體效率" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Efficiency}" Foreground="{StaticResource AccentBrush}" FontSize="23" FontWeight="SemiBold" Margin="0,15,0,9"/><TextBlock Text="總算力 ÷ GPU 總功耗" Style="{StaticResource Muted}" FontSize="10"/></StackPanel></Border>
     <Border Style="{StaticResource Panel}" Margin="0,0,12,0"><StackPanel><TextBlock Text="最高溫度" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Temperature}" Foreground="{StaticResource WarningBrush}" FontSize="27" FontWeight="SemiBold" Margin="0,12,0,8"/><TextBlock Text="已提供溫度的 GPU" Style="{StaticResource Muted}" FontSize="10"/></StackPanel></Border>
@@ -65,7 +65,7 @@
     <Border Style="{StaticResource Panel}">
      <StackPanel>
       <DockPanel><ComboBox DockPanel.Dock="Right" Width="95" ItemsSource="{Binding Ranges}" SelectedItem="{Binding Range}"/><ComboBox DockPanel.Dock="Right" Width="80" Margin="0,0,8,0" ItemsSource="{Binding Metrics}" SelectedItem="{Binding Metric}"/><TextBlock Text="效能趨勢" FontSize="15" FontWeight="SemiBold"/></DockPanel>
-      <controls:TrendChart Samples="{Binding ChartSamples}" Unit="{Binding ChartUnit}" Height="190" Margin="0,15,0,0"/>
+      <controls:TrendChart Samples="{Binding ChartSamples}" MaxGapSeconds="{Binding ChartMaxGapSeconds}" Unit="{Binding ChartUnit}" Height="190" Margin="0,15,0,0"/>
       <UniformGrid Columns="4" Margin="0,10,0,0">
        <StackPanel><TextBlock Text="1 分鐘平均" Style="{StaticResource Muted}" FontSize="10"/><TextBlock Text="{Binding Average1m}" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap"/></StackPanel>
        <StackPanel><TextBlock Text="15 分鐘平均" Style="{StaticResource Muted}" FontSize="10"/><TextBlock Text="{Binding Average15m}" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap"/></StackPanel>

@@ -5,6 +5,14 @@ using System.Text.Json;
 using System.Runtime.InteropServices;
 
 // Test transport/probe fixture only. This program performs no hashing and connects to no pool.
+if (args.Any(a => a.StartsWith("--query-gpu=", StringComparison.Ordinal)))
+{
+    var counterPath = Path.Combine(AppContext.BaseDirectory, "fixture-sensor-counter.txt");
+    var sensorCount = File.Exists(counterPath) ? int.Parse(File.ReadAllText(counterPath)) + 1 : 1;
+    File.WriteAllText(counterPath, sensorCount.ToString());
+    Console.WriteLine($"00000000:01:00.0, Integration Fixture GPU, {100 + sensorCount}, {40 + sensorCount}, {50 + sensorCount}, {2000 + sensorCount}, {9000 + sensorCount}");
+    return 0;
+}
 if (!args.Contains("--api-enable")) { Console.Error.WriteLine("Integration fixture requires --api-enable; no mining is performed."); return 2; }
 var index = Array.IndexOf(args, "--api-port");
 var port = index >= 0 && index + 1 < args.Length ? int.Parse(args[index + 1]) : 21550;
@@ -29,11 +37,13 @@ var outputTask = Task.Run(async () =>
         while (!lifetime.IsCancellationRequested)
         {
             await Task.Delay(100, lifetime.Token);
-            foreach (var kind in new[] { "accepted", "rejected", "timeout" })
+            foreach (var kind in new[] { "accepted", "rejected", "timeout", "api-accepted", "flush-accepted" })
             {
                 var trigger = Path.Combine(Environment.CurrentDirectory, "fixture-" + kind);
                 if (!File.Exists(trigger)) continue;
                 File.Delete(trigger);
+                if (kind == "api-accepted") { Interlocked.Increment(ref accepted); continue; }
+                if (kind == "flush-accepted") { Console.WriteLine("GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE"); continue; }
                 if (kind == "accepted") Interlocked.Increment(ref accepted);
                 Console.WriteLine("GPU0[t0] share " + kind + " [ 213ms ][pearlhash][0]");
             }
@@ -54,7 +64,7 @@ try
         {
             miner_version = "integration-fixture", mining_time = (DateTimeOffset.UtcNow - started).TotalSeconds,
             gpu_devices = new[] { new { device_id = 0, bus_id = 1, name = "Integration Fixture GPU" } },
-            algorithms = new[] { new { name = "pearlhash", hashrate = new { now = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 1000, gpu = new { gpu0 = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 1000 } }, shares = new { accepted = args.Contains("--fixture-no-share-api") ? (int?)null : Volatile.Read(ref accepted), rejected = args.Contains("--fixture-no-share-api") ? (int?)null : 1 } } }
+            algorithms = new[] { new { name = "pearlhash", hashrate = new { now = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 10000, gpu = new { gpu0 = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 10000 } }, shares = new { accepted = args.Contains("--fixture-no-share-api") ? (int?)null : Volatile.Read(ref accepted), rejected = args.Contains("--fixture-no-share-api") ? (int?)null : 1 } } }
         });
         var bytes = Encoding.UTF8.GetBytes(json);
         await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bytes.Length}\r\nConnection: close\r\n\r\n"), lifetime.Token);

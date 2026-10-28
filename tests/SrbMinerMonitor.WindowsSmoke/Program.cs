@@ -41,6 +41,7 @@ internal static class Program
         {
             try
             {
+                if (vm.Settings.RefreshValue != "1" || vm.Settings.RefreshUnit != "分" || !vm.Settings.RefreshUnits.SequenceEqual(new[] { "秒", "分", "時", "天" })) throw new InvalidOperationException("Refresh interval must default to one minute with four units.");
                 if (vm.Gpus.Count != 0 || vm.Hashrate != "—") throw new InvalidOperationException("Startup must be empty; no demonstration data or automatic mining.");
                 if (Descendants<Button>(window).Any(b => b.Content?.ToString()?.Contains("示範") == true)) throw new InvalidOperationException("Demo UI remains.");
                 if (window.Background is not SolidColorBrush rootBrush || rootBrush.Color != Color.FromRgb(16, 23, 32)) throw new InvalidOperationException("Window must explicitly use the dark background.");
@@ -112,6 +113,10 @@ internal static class Program
         Directory.CreateDirectory(directory);
         foreach (var path in Directory.GetFiles(Path.GetDirectoryName(executable)!)) File.Copy(path, Path.Combine(directory, Path.GetFileName(path)), true);
         File.Copy(executable, Path.Combine(directory, "SRBMiner-MULTI.exe"), true);
+        var sensorFixtureDirectory = Path.GetDirectoryName(executable)!;
+        File.Copy(executable, Path.Combine(sensorFixtureDirectory, "nvidia-smi.exe"), true);
+        var previousSearchPath = Environment.GetEnvironmentVariable("PATH");
+        Environment.SetEnvironmentVariable("PATH", sensorFixtureDirectory + Path.PathSeparator + previousSearchPath);
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
         const string userShape = "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\nif not exist \"SRBMiner-MULTI.exe\" (\r\n echo ERROR: missing SRBMiner-MULTI.exe\r\n exit /b 1\r\n)\r\n\"%~dp0SRBMiner-MULTI.exe\" --algorithm-gpu pearlhash --disable-cpu --gpu-disable-oc --gpu-off-temperature 80 --pool fixture.example:8048 --tls true --wallet TEST --worker TEA-PC --log-file \"logs\\fixture.log\" --log-file-mode 1 --fixture-no-share-api\r\npause\r\nendlocal\r\n";
@@ -174,6 +179,7 @@ internal static class Program
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("BAT restart failed.");
             if (vm.Accepted != "4" || vm.TotalAccepted != "4") throw new InvalidOperationException("API plus output counted twice or restart kept old counters.");
+            await VerifyRefreshAndLiveFeed(vm, directory, output, render);
             await VerifyScheduledRestart(vm, render);
             await Execute(vm, vm.StopCommand);
             await AssertPortClosed(port);
@@ -182,10 +188,47 @@ internal static class Program
         }
         finally
         {
+            Environment.SetEnvironmentVariable("PATH", previousSearchPath);
             if (vm.StopCommand.CanExecute(null)) await Execute(vm, vm.StopCommand);
             try { Directory.Delete(directory, true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { StartupDiagnostics.Write("Deferred temporary fixture cleanup: " + e.Message); }
         }
+    }
+    private static async Task VerifyRefreshAndLiveFeed(MainViewModel vm, string directory, string output, Func<string, Task> render)
+    {
+        string MinerPid() => System.Text.RegularExpressions.Regex.Matches(vm.MinerOutputText, @"FIXTURE_MINER_PID=(\d+)").Last().Groups[1].Value;
+        string Hardware() => string.Join("|", new[] { vm.Hashrate, vm.Power, vm.Efficiency, vm.Temperature }.Concat(vm.Gpus.Select(g => string.Join("/", g.Hashrate, g.Power, g.Efficiency, g.Fan, g.Temperature, g.Core, g.Memory))));
+        var miner = MinerPid();
+        vm.Settings.RefreshValue = "1"; vm.Settings.RefreshUnit = "天";
+        await Execute(vm, vm.SaveCommand);
+        if (vm.Power == "—" || vm.Temperature == "—") throw new InvalidOperationException("Hardware sensor fixture did not bind.");
+        var frozen = Hardware(); var historyCount = vm.History.Samples.Count;
+        var successes = vm.Events.Count(e => e.Category == "成功");
+        await File.WriteAllTextAsync(Path.Combine(directory, "fixture-api-accepted"), "go");
+        var deadline = DateTimeOffset.Now.AddSeconds(3);
+        while ((vm.TotalAccepted != "5" || !vm.RecentShares.First().Message.Contains("API 已確認")) && DateTimeOffset.Now < deadline) await Task.Delay(20);
+        if (vm.TotalAccepted != "5" || !vm.RecentShares.First().Message.Contains("API 已確認")) throw new InvalidOperationException("Red-box recent shares did not update from API while stdout is withheld.");
+        var recentId = vm.RecentShares.First().Id;
+        await Task.Delay(1200);
+        if (Hardware() != frozen || vm.History.Samples.Count != historyCount) throw new InvalidOperationException("Hardware changed before configured daily interval.");
+        await File.WriteAllTextAsync(Path.Combine(directory, "fixture-flush-accepted"), "go");
+        deadline = DateTimeOffset.Now.AddSeconds(3);
+        while (!vm.RecentShares.First().Message.Contains("DELAYED_FIXTURE") && DateTimeOffset.Now < deadline) await Task.Delay(20);
+        if (vm.RecentShares.First().Id != recentId || !vm.RecentShares.First().Message.Contains("DELAYED_FIXTURE") || vm.Events.Count(e => e.Category == "成功") != successes + 1 || vm.TotalAccepted != "5") throw new InvalidOperationException("Delayed stdout duplicated the API-confirmed share or failed to enrich it.");
+        Console.WriteLine("PASS: API-confirmed recent success is live while stdout is buffered; late output enriches the same entry with no duplicate; all hardware remains frozen.");
+        vm.Settings.RefreshValue = "2"; vm.Settings.RefreshUnit = "秒";
+        await Execute(vm, vm.SaveCommand);
+        var before = Hardware(); var power = vm.Power; var rate = vm.Hashrate;
+        deadline = DateTimeOffset.Now.AddSeconds(7);
+        while ((vm.Power == power || vm.Hashrate == rate) && DateTimeOffset.Now < deadline) await Task.Delay(100);
+        if (vm.Power == power || vm.Hashrate == rate || MinerPid() != miner) throw new InvalidOperationException("Custom seconds interval did not refresh hardware without restarting the miner.");
+        var restored = await new SettingsStore(Path.Combine(output, "isolated-settings")).LoadAsync();
+        if (restored.MetricRefresh != new MetricRefreshOptions(2, RefreshUnit.Seconds)) throw new InvalidOperationException("Custom interval did not persist.");
+        vm.SettingsCommand.Execute(null); await render("custom-refresh-settings"); vm.OverviewCommand.Execute(null); await render("live-share-fixed-hardware-interval");
+        vm.Settings.RefreshValue = "0"; await Execute(vm, vm.SaveCommand);
+        if (!vm.Notice.Contains("正整數")) throw new InvalidOperationException("Invalid interval was silently accepted.");
+        vm.Settings.RefreshValue = "1"; vm.Settings.RefreshUnit = "分"; await Execute(vm, vm.SaveCommand);
+        Console.WriteLine("PASS: seconds/minutes/hours/days selector; custom 2-second hardware updates, persisted setting and invalid-zero feedback; saving does not restart miner.");
     }
     private static async Task VerifyScheduledRestart(MainViewModel vm, Func<string, Task> render)
     {

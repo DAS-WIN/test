@@ -8,6 +8,8 @@ namespace SrbMinerMonitor.App.Controls;
 
 public sealed class TrendChart : FrameworkElement
 {
+    public static readonly DependencyProperty MaxGapSecondsProperty = DependencyProperty.Register(nameof(MaxGapSeconds), typeof(double), typeof(TrendChart), new FrameworkPropertyMetadata(75d, FrameworkPropertyMetadataOptions.AffectsRender));
+    public double MaxGapSeconds { get => (double)GetValue(MaxGapSecondsProperty); set => SetValue(MaxGapSecondsProperty, value); }
     public static readonly DependencyProperty SamplesProperty = DependencyProperty.Register(nameof(Samples), typeof(IReadOnlyList<ChartSample>), typeof(TrendChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty UnitProperty = DependencyProperty.Register(nameof(Unit), typeof(string), typeof(TrendChart), new FrameworkPropertyMetadata("H/s", FrameworkPropertyMetadataOptions.AffectsRender));
     public IReadOnlyList<ChartSample>? Samples { get => (IReadOnlyList<ChartSample>?)GetValue(SamplesProperty); set => SetValue(SamplesProperty, value); }
@@ -40,7 +42,7 @@ public sealed class TrendChart : FrameworkElement
         foreach (var sample in samples)
         {
             if (sample.Value is not double n || !double.IsFinite(n)) { previous = null; continue; }
-            if (previous is { } p && p.Session == sample.Session && sample.Time - p.Time <= TimeSpan.FromSeconds(75))
+            if (previous is { } p && p.Session == sample.Session && sample.Time - p.Time <= TimeSpan.FromSeconds(MaxGapSeconds))
                 dc.DrawLine(new Pen(accent, 2), Point(p), Point(sample));
             else if (previous is { } boundary && boundary.Session != sample.Session)
             {

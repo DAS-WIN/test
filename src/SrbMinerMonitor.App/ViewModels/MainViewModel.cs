@@ -12,18 +12,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly SettingsStore _store;
     private readonly MinerProcess _process = new();
     private readonly ApiReader _api = new();
+    private readonly SemaphoreSlim _pollGate = new(1, 1);
     private readonly MinerController _controller;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly MinerOutput _minerOutput = new();
     private readonly MinuteMetrics _minuteMetrics = new();
+    private readonly ShareFeed _shareFeed = new();
     private readonly Queue<string> _outputLines = new();
     private MinerSettings _saved = new();
     private MinerSettings? _activeSettings;
     private RestartOptions _restart = new();
     private MinerSnapshot? _snapshot;
     private Guid _outputSession, _lastControllerSession, _lastSession;
-    private DateTimeOffset _nextPoll, _nextSensors;
-    private IReadOnlyList<NvidiaSensor> _sensors = [];
+    private DateTimeOffset _nextPoll;
     private bool _busy, _scheduleOpen, _apiHealthy, _settingsLoaded = true;
     private string _page = "Overview", _notice = "請選擇自己的 BAT，或在挖礦設定貼上 BAT 內容。";
     private string _eventFilter = "全部", _metric = "算力", _range = "15 分鐘", _apiStatus = "尚未連線 API";
@@ -67,18 +68,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ApiEndpoint => $"http://127.0.0.1:{MonitoringSettings.ApiPort}";
     public string StartRequirement { get { try { return Settings.ToSettings(_restart).Validate() ?? "已準備好，可儲存並啟動。"; } catch (ArgumentException e) { return e.Message; } } }
     public string SaveStartText => _controller.IsRunning ? "儲存並重啟礦工" : "儲存並啟動 BAT";
-    public string SettingsFooterHint => "儲存草稿不影響目前礦工；啟動或重啟後套用 BAT。";
+    public string SettingsFooterHint => "更新間隔儲存後立即套用；BAT 變更在啟動或重啟礦工後套用。";
     public string Status => _controller.IsTransitioning ? "礦工處理中" : _controller.IsRunning ? (_apiHealthy ? "BAT 運行中 · API 已連線" : "BAT 運行中 · 等待 API") : _apiHealthy ? "外部礦工 · 僅監控" : "礦工已停止";
     public string RigTitle => MonitoringSettings.RigName + " / " + (_snapshot?.Algorithm ?? "等待演算法資訊");
     public string Version => "SRBMiner " + (_snapshot?.Version ?? "—") + "  ·  BAT 監控";
     public string Uptime => Display.Uptime(_snapshot?.UptimeSeconds);
     public string LastUpdate => _snapshot?.Timestamp.ToLocalTime().ToString("HH:mm:ss") ?? "—";
-    public string HashrateUpdate => _minuteMetrics.Snapshot?.Timestamp.ToLocalTime().ToString("HH:mm:ss") ?? "—";
-    public string Freshness => _snapshot is null ? "等待資料 · Accepted 即時更新" : DateTimeOffset.Now - _snapshot.Timestamp > TimeSpan.FromSeconds(15) ? "API 資料過期 · 分享訊息持續接收" : "算力每分鐘更新 · Accepted 即時更新";
+    public string HashrateUpdate => _minuteMetrics.Snapshot?.Timestamp.ToLocalTime().ToString("MM-dd HH:mm:ss") ?? "—";
+    public string MetricRefreshSummary => $"硬體資訊每 {_saved.MetricRefresh.Label} 更新";
+    public double ChartMaxGapSeconds => _saved.MetricRefresh.Duration.TotalSeconds + 15;
+    public string Freshness => _snapshot is null ? "等待資料 · Accepted 即時更新" : DateTimeOffset.Now - _snapshot.Timestamp > TimeSpan.FromSeconds(15) ? "API 資料過期 · 分享訊息持續接收" : MetricRefreshSummary + " · 分享即時更新";
     public string Hashrate => Display.Hash(_minuteMetrics.Snapshot?.TotalHashrate);
-    public string Power => Display.Number(_snapshot?.TotalPower, "W");
-    public string Efficiency => Display.Hash(_snapshot?.TotalPower > 0 ? _minuteMetrics.Snapshot?.TotalHashrate / _snapshot.TotalPower : null, true, _minuteMetrics.Snapshot?.TotalHashrate);
-    public string Temperature => Display.Number(_snapshot?.MaxTemperature, "°C", "0");
+    public string Power => Display.Number(_minuteMetrics.Snapshot?.TotalPower, "W");
+    public string Efficiency => Display.Hash(_minuteMetrics.Snapshot?.Efficiency, true, _minuteMetrics.Snapshot?.TotalHashrate);
+    public string Temperature => Display.Number(_minuteMetrics.Snapshot?.MaxTemperature, "°C", "0");
     private MinerSnapshot? CurrentSnapshot => _controller.IsRunning && _lastControllerSession != _controller.Session ? null : _snapshot;
     private ShareStats TotalShares => MinerOutput.Max(CurrentSnapshot?.Shares, _minerOutput.Total);
     private ShareStats Shares => SelectedGpu is null ? TotalShares : MinerOutput.Max(
@@ -145,11 +148,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 if (session != _process.OutputSession) return;
-                if (_outputSession != session) { _outputSession = session; _minerOutput.Reset(); }
+                if (_outputSession != session) { _outputSession = session; _minerOutput.Reset(); _shareFeed.Reset(); }
                 var clean = MinerOutput.Clean(line);
                 _minerOutput.Read(clean);
                 _outputLines.Enqueue(Redact(clean)); while (_outputLines.Count > 500) _outputLines.Dequeue();
-                if (MinerOutput.Outcome(clean) is string outcome) AddShareEvent(outcome, clean);
+                if (_shareFeed.ObserveOutput(clean, _minerOutput.ObservedTotal, DateTimeOffset.Now) is { } notice) ApplyShareNotice(notice);
                 Changed(nameof(MinerOutputText)); Refresh();
             });
         };
@@ -185,9 +188,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void ShowError(Exception e) { Notice = Redact(e.Message); StartupDiagnostics.Write("Operation failed: " + Redact(e.ToString())); }
     private void Navigate(string page) { _page = page; Changed(nameof(IsOverview)); Changed(nameof(IsSettings)); Changed(nameof(IsEvents)); }
     private static string Redact(string text) => System.Text.RegularExpressions.Regex.Replace(text, @"(?i)(password|passwd|--password|--pass)\s*[:= ]\s*[^\s]+", "$1 [已遮蔽]");
-    private void AddShareEvent(string category, string text)
+    private void ApplyShareNotice(ShareNotice notice)
     {
-        Events.Insert(0, new(DateTimeOffset.Now, category, Redact(text)));
+        var record = new MonitorEvent(notice.Time, notice.Category, Redact(notice.Message), notice.Id);
+        if (notice.Replace)
+        {
+            var existing = Events.FirstOrDefault(e => e.Id == notice.Id);
+            if (existing is null) return;
+            Events[Events.IndexOf(existing)] = record;
+        }
+        else Events.Insert(0, record);
         while (Events.Count > 2000) Events.RemoveAt(Events.Count - 1);
         Changed(nameof(FilteredEvents)); Changed(nameof(RecentShares));
     }
@@ -253,8 +263,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // Validate automatic API insertion before stopping a running miner.
         if (restart && settings.UsePastedBatch) _ = PastedBatch.Prepare(settings.BatchContent, settings.ApiPort);
         await _store.SaveAsync(settings); _saved = settings; _settingsLoaded = true;
-        Notice = "設定已儲存；重啟礦工後套用。";
-        if (!restart) return;
+        Notice = "監控更新間隔已套用；BAT 變更需重啟礦工。";
+        if (!restart) { _nextPoll = default; await Poll(); return; }
         await ReadBatchPool(settings); _apiHealthy = false; ApiStatus = "正在啟動 BAT，等待 API…";
         await _controller.RestartAsync(settings); _activeSettings = settings;
         Notice = "BAT 已在背景啟動。"; _nextPoll = default; await Poll();
@@ -313,10 +323,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     }
                 }
                 catch (Exception e) when (e is not OperationCanceledException) { ShowError(e); }
-                // Poll at the minute boundary even if the regular share request is not due yet.
-                var now = DateTimeOffset.Now;
-                var minuteDue = _snapshot is not null && now.UtcTicks / TimeSpan.TicksPerMinute != _snapshot.Timestamp.UtcTicks / TimeSpan.TicksPerMinute;
-                if ((now >= _nextPoll || (minuteDue && _apiHealthy)) && !_controller.IsTransitioning) await Poll();
+                if (DateTimeOffset.Now >= _nextPoll && !_controller.IsTransitioning) await Poll();
                 Refresh();
             }
         }
@@ -324,28 +331,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private async Task Poll()
     {
+        await _pollGate.WaitAsync(_lifetime.Token);
+        try { await PollCore(); }
+        finally { _pollGate.Release(); }
+    }
+    private async Task PollCore()
+    {
         _nextPoll = DateTimeOffset.Now.AddSeconds(1);
         var session = _controller.Session;
         try
         {
             var data = await _api.ReadAsync(MonitoringSettings.ApiPort, _lifetime.Token);
-            var sensorsChanged = DateTimeOffset.Now >= _nextSensors;
-            if (sensorsChanged) { _sensors = await NvidiaSensors.ReadAsync(_lifetime.Token); _nextSensors = DateTimeOffset.Now.AddSeconds(5); }
             if (_controller.IsTransitioning || session != _controller.Session) return;
-            var snapshot = NvidiaSensors.Merge(data.Snapshot, data.Buses, _sensors);
+            var snapshot = data.Snapshot;
             if (_snapshot is null || _lastControllerSession != session) _lastSession = session;
-            else if (snapshot.UptimeSeconds < _snapshot.UptimeSeconds) { _lastSession = Guid.NewGuid(); _minerOutput.Reset(); }
+            else if (snapshot.UptimeSeconds < _snapshot.UptimeSeconds)
+            {
+                _lastSession = Guid.NewGuid(); _minerOutput.Reset(); _shareFeed.Reset();
+            }
             _lastControllerSession = session; snapshot = snapshot with { Session = _lastSession };
             _snapshot = snapshot; _apiHealthy = true; ApiStatus = $"API 已連線 · {snapshot.Timestamp:HH:mm:ss}";
             _minerOutput.Reconcile(snapshot);
-            var minuteChanged = _minuteMetrics.Update(snapshot);
-            if (minuteChanged) History.Add(_minuteMetrics.Snapshot!);
-            if (minuteChanged || sensorsChanged || Gpus.Count != snapshot.Gpus.Count)
+            foreach (var notice in _shareFeed.ObserveApi(snapshot.Shares, snapshot.Timestamp, _controller.IsRunning)) ApplyShareNotice(notice);
+            Refresh(); // Publish recent shares before waiting for hardware sensors.
+            var refresh = _saved.MetricRefresh;
+            if (_minuteMetrics.IsDue(snapshot.Timestamp, snapshot.Session, refresh))
             {
-                var selectedId = SelectedGpu?.Metrics.Id;
-                var rates = _minuteMetrics.Snapshot!;
-                Gpus.Clear(); foreach (var gpu in snapshot.Gpus) Gpus.Add(new(gpu with { Hashrate = rates.Gpus.FirstOrDefault(g => g.Id == gpu.Id)?.Hashrate }));
-                _selectedGpu = selectedId is int id ? Gpus.FirstOrDefault(g => g.Metrics.Id == id) : null; Changed(nameof(SelectedGpu));
+                var sensors = await NvidiaSensors.ReadAsync(_lifetime.Token);
+                if (_controller.IsTransitioning || session != _controller.Session || refresh != _saved.MetricRefresh) return;
+                var hardware = NvidiaSensors.Merge(snapshot, data.Buses, sensors);
+                if (_minuteMetrics.Update(hardware, refresh))
+                {
+                    History.Add(hardware);
+                    var selectedId = SelectedGpu?.Metrics.Id;
+                    Gpus.Clear(); foreach (var gpu in hardware.Gpus) Gpus.Add(new(gpu));
+                    _selectedGpu = selectedId is int id ? Gpus.FirstOrDefault(g => g.Metrics.Id == id) : null; Changed(nameof(SelectedGpu));
+                }
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
@@ -354,7 +375,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private void Refresh()
     {
-        foreach (var property in new[] { nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(HashrateUpdate), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(TotalAccepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(PoolSource), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(ApiEndpoint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
+        foreach (var property in new[] { nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(HashrateUpdate), nameof(MetricRefreshSummary), nameof(ChartMaxGapSeconds), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(TotalAccepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(PoolSource), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(ApiEndpoint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
         CommandManager.InvalidateRequerySuggested();
     }
     public void Dispose() { _lifetime.Cancel(); _api.Dispose(); _process.Dispose(); _lifetime.Dispose(); }

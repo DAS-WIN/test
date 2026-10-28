@@ -50,9 +50,11 @@ public sealed record MinerSettings
     public string RigName { get; init; } = "rig-01";
     public int ApiPort { get; init; } = 21550;
     public RestartOptions Restart { get; init; } = new();
+    public MetricRefreshOptions MetricRefresh { get; init; } = new();
 
     public string? Validate(bool checkFile = true)
     {
+        if (MetricRefresh.Validate() is string intervalError) return intervalError;
         if (ApiPort is < 1 or > 65535) return "API 連接埠必須介於 1 與 65535。";
         if (UsePastedBatch)
         {
@@ -67,7 +69,7 @@ public sealed record MinerSettings
     }
 }
 
-public sealed record MonitorEvent(DateTimeOffset Time, string Category, string Message)
+public sealed record MonitorEvent(DateTimeOffset Time, string Category, string Message, Guid Id = default)
 {
     public string TimeText => Time.ToLocalTime().ToString("HH:mm:ss");
 }

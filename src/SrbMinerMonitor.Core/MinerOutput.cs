@@ -11,7 +11,7 @@ public sealed partial class MinerOutput
     public string? Pool { get; private set; }
     public IReadOnlyDictionary<int, ShareStats> Gpus => _gpus;
     public ShareStats Total => Max(_api, ObservedTotal);
-    private ShareStats ObservedTotal => Max(_total, new(Sum(s => s.Accepted), Sum(s => s.Rejected), Timeout: Sum(s => s.Timeout), HardwareErrors: Sum(s => s.HardwareErrors)));
+    public ShareStats ObservedTotal => Max(_total, new(Sum(s => s.Accepted), Sum(s => s.Rejected), Timeout: Sum(s => s.Timeout), HardwareErrors: Sum(s => s.HardwareErrors)));
     private long? Sum(Func<ShareStats, long?> field) => _gpus.Count == 0 || _gpus.Values.Any(s => field(s) is null)
         ? null : _gpus.Values.Sum(s => field(s)!.Value);
     public static string Clean(string line) => Ansi().Replace(line, "").TrimEnd('\r');

@@ -30,7 +30,10 @@
      <StackPanel><TextBlock Text="礦機名稱" Style="{StaticResource Muted}" Margin="0,0,0,7"/><TextBox Text="{Binding Settings.RigName, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
      <StackPanel Grid.Column="2"><TextBlock Text="API 連接埠" Style="{StaticResource Muted}" Margin="0,0,0,7"/><TextBox Text="{Binding Settings.ApiPort, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
     </Grid>
-    <TextBlock Text="算力在每分鐘切換時更新；Accepted 與分享結果即時更新。" Foreground="{StaticResource AccentBrush}" Margin="0,16,0,0"/>
+    <TextBlock Text="硬體資訊更新間隔" Style="{StaticResource Muted}" Margin="0,16,0,7"/>
+    <StackPanel Orientation="Horizontal"><TextBox x:Name="RefreshIntervalValue" Width="120" Text="{Binding Settings.RefreshValue, UpdateSourceTrigger=PropertyChanged}"/><ComboBox x:Name="RefreshIntervalUnit" Width="100" Margin="10,0,0,0" ItemsSource="{Binding Settings.RefreshUnits}" SelectedItem="{Binding Settings.RefreshUnit}"/></StackPanel>
+    <TextBlock Text="預設 1 分鐘。算力、功耗、溫度、風扇與時脈依此間隔統一更新；最近成功分享及 Accepted 始終即時更新。" TextWrapping="Wrap" Foreground="{StaticResource AccentBrush}" Margin="0,12,0,0"/>
+    <TextBlock Text="儲存設定即可套用更新間隔，無須重啟礦工。" Style="{StaticResource Muted}" Margin="0,8,0,0"/>
     <TextBlock Text="{Binding ApiStatus}" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,10,0,0"/>
    </StackPanel></Border>
   </StackPanel></ScrollViewer>
