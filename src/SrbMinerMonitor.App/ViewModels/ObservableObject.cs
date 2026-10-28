@@ -25,6 +25,7 @@ public sealed class RelayCommand(Action action, Func<bool>? canExecute = null) :
 public sealed class AsyncCommand(Func<Task> action, Action<Exception> onError, Func<bool>? canExecute = null) : ICommand
 {
     private bool _executing;
+    public bool IsExecuting => _executing;
     public bool CanExecute(object? parameter) => !_executing && (canExecute?.Invoke() ?? true);
     public async void Execute(object? parameter)
     {

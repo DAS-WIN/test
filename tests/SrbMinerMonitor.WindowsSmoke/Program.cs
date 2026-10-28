@@ -102,8 +102,8 @@ internal static class Program
         if (!command.CanExecute(null)) throw new InvalidOperationException("Expected command to be available: " + vm.StartRequirement);
         command.Execute(null);
         var until = DateTimeOffset.Now.AddSeconds(seconds);
-        while (vm.IsBusy && DateTimeOffset.Now < until) await Task.Delay(50);
-        if (vm.IsBusy) throw new TimeoutException("UI command did not complete.");
+        while ((vm.IsBusy || command is AsyncCommand { IsExecuting: true }) && DateTimeOffset.Now < until) await Task.Delay(50);
+        if (vm.IsBusy || command is AsyncCommand { IsExecuting: true }) throw new TimeoutException("UI command did not complete.");
     }
     private static async Task VerifyProbeFeedback(MainViewModel vm, string executable)
     {
@@ -121,7 +121,7 @@ internal static class Program
                 vm.ReadAlgorithmsCommand.Execute(null);
                 if (mode == "slow" && (!vm.ReadingAlgorithms || !vm.ProbeStatus.Contains("執行中"))) throw new InvalidOperationException("No progress shown while the probe is running.");
                 var until = DateTimeOffset.Now.AddSeconds(15);
-                while (vm.IsBusy && DateTimeOffset.Now < until) await Task.Delay(50);
+                while ((vm.IsBusy || vm.ReadAlgorithmsCommand is AsyncCommand { IsExecuting: true }) && DateTimeOffset.Now < until) await Task.Delay(50);
                 if (vm.IsBusy || vm.Settings.Algorithms.Count != 2 || !vm.ProbeStatus.StartsWith("失敗")) throw new InvalidOperationException("Probe failure did not preserve cache or show feedback: " + mode);
                 if (mode == "empty" && !vm.ProbeDetails.Contains("未輸出任何資料")) throw new InvalidOperationException("Empty output is ambiguous.");
                 if (mode == "fail" && !vm.ProbeDetails.Contains("driver unavailable")) throw new InvalidOperationException("stderr was not shown.");
