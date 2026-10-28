@@ -24,6 +24,6 @@ try {
         "$hash  $([System.IO.Path]::GetFileName($_))"
     }
     $checks | Set-Content artifacts/SHA256SUMS.txt -Encoding utf8
-    gh release create $tag $portable $source $validation artifacts/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "SRBMiner Monitor $version - startup fix" --notes-file "docs/RELEASE-NOTES-$version.md" --prerelease
+    gh release create $tag $portable $source $validation artifacts/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "SRBMiner Monitor $version" --notes-file "docs/RELEASE-NOTES-$version.md" --prerelease
     if ($LASTEXITCODE -ne 0) { throw 'GitHub prerelease upload failed.' }
 } finally { Pop-Location }

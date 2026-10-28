@@ -9,6 +9,7 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
     private Process? _process;
     private WindowsBatchProcess? _batch;
     private int? _activeApiPort;
+    public Guid OutputSession { get; private set; }
     public bool IsRunning => _batch?.IsRunning ?? _process is { HasExited: false };
     public event Action<string>? Log;
 
@@ -18,26 +19,28 @@ public sealed partial class MinerProcess : IMinerProcess, IDisposable
         if (IsRunning) throw new InvalidOperationException("已有受管理的礦工程序。");
         LocalApiPort.EnsureAvailable(settings.ApiPort);
         _activeApiPort = settings.ApiPort;
+        OutputSession = Guid.NewGuid();
+        var outputSession = OutputSession;
         _process?.Dispose();
         _process = null;
         _batch?.Dispose(); _batch = null;
         if (settings.UseBatchFile)
         {
             _batch = new WindowsBatchProcess();
-            _batch.Log += message => Log?.Invoke(message);
+            _batch.Log += message => { if (OutputSession == outputSession) Log?.Invoke(message); };
             await _batch.StartAsync(settings, ct);
             return;
         }
         var info = new ProcessStartInfo(settings.Executable)
         {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
-            CreateNoWindow = false, WindowStyle = ProcessWindowStyle.Hidden,
+            CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,
             WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(settings.Executable))!
         };
         foreach (var argument in settings.Arguments()) info.ArgumentList.Add(argument);
         var process = new Process { StartInfo = info };
-        process.OutputDataReceived += (_, e) => { if (e.Data is { Length: > 0 } line) Log?.Invoke(line); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is { Length: > 0 } line) Log?.Invoke(line); };
+        process.OutputDataReceived += (_, e) => { if (OutputSession == outputSession && e.Data is { Length: > 0 } line) Log?.Invoke(line); };
+        process.ErrorDataReceived += (_, e) => { if (OutputSession == outputSession && e.Data is { Length: > 0 } line) Log?.Invoke(line); };
         try { process.Start(); }
         catch { process.Dispose(); throw; }
         _process = process;

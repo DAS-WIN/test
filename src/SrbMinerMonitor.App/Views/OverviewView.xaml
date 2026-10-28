@@ -7,8 +7,8 @@
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
      <Button Content="▶ 開始" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
      <Button Content="■ 停止" Command="{Binding StopCommand}" Foreground="#E99797" BorderBrush="#784A53" Background="Transparent" Margin="0,0,8,0"/>
-     <Button Content="↻ 重啟" Command="{Binding RestartCommand}" Margin="0,0,8,0"/>
-     <Button Content="◷ 自動重啟" Command="{Binding ScheduleCommand}" Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
+     <Button Content="↻ 重啟礦工" Command="{Binding RestartCommand}" Margin="0,0,8,0"/>
+     <Button Content="◷ 自動重啟礦工" Command="{Binding ScheduleCommand}" Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
      <Button Content="⚙ 設定" Command="{Binding SettingsCommand}"/>
     </StackPanel>
     <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}"><Run Text="運行時間  "/><Run Text="{Binding Uptime, Mode=OneWay}"/></TextBlock>
@@ -16,6 +16,9 @@
    <TextBlock Text="{Binding ApiStatus}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,10"/>
    <Border Background="#182D38" BorderBrush="#284A5C" BorderThickness="1" CornerRadius="6" Padding="14,11" Margin="0,0,0,18">
     <DockPanel><TextBlock Text="{Binding ScheduleDetail}" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}" FontSize="11"/><TextBlock Text="{Binding ScheduleSummary}" Foreground="{StaticResource AccentBrush}" FontSize="12"/></DockPanel>
+   </Border>
+   <Border Background="#15352E" BorderBrush="#2D6551" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,0,0,14">
+    <DockPanel><TextBlock Text="{Binding TotalAccepted}" DockPanel.Dock="Right" Foreground="{StaticResource SuccessBrush}" FontSize="24" FontWeight="SemiBold"/><TextBlock Text="成功分享 Accepted（全部 GPU）" Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Center"/></DockPanel>
    </Border>
    <UniformGrid Columns="4" Margin="0,0,-12,18">
     <Border Style="{StaticResource Panel}" Margin="0,0,12,0"><StackPanel><TextBlock Text="總算力" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Hashrate}" Foreground="{StaticResource AccentBrush}" FontSize="27" FontWeight="SemiBold" Margin="0,12,0,8"/><TextBlock Text="所有 GPU 即時算力" Style="{StaticResource Muted}" FontSize="10"/></StackPanel></Border>
@@ -42,14 +45,14 @@
      <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="20,14,20,16">
       <StackPanel><TextBlock Text="{Binding ShareTitle}" Style="{StaticResource Muted}" Margin="0,0,0,12"/>
        <UniformGrid Columns="6">
-        <StackPanel><TextBlock Text="Accepted" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Accepted}" Foreground="{StaticResource SuccessBrush}" FontSize="23" Margin="0,5,0,0"/></StackPanel>
+        <StackPanel><TextBlock Text="成功 Accepted" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Accepted}" Foreground="{StaticResource SuccessBrush}" FontSize="23" Margin="0,5,0,0"/></StackPanel>
         <StackPanel><TextBlock Text="Rejected" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Rejected}" Foreground="#E18C94" FontSize="23" Margin="0,5,0,0"/></StackPanel>
         <StackPanel><TextBlock Text="Stale" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Stale}" Foreground="{StaticResource WarningBrush}" FontSize="23" Margin="0,5,0,0"/></StackPanel>
         <StackPanel><TextBlock Text="Timeout" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Timeout}" Foreground="{StaticResource WarningBrush}" FontSize="23" Margin="0,5,0,0"/></StackPanel>
         <StackPanel><TextBlock Text="HW errors" Style="{StaticResource Muted}"/><TextBlock Text="{Binding HardwareErrors}" FontSize="23" Margin="0,5,0,0"/></StackPanel>
         <StackPanel ToolTip="接受率 = Accepted ÷ (Accepted + Rejected)。Stale 不另行重複累加。"><TextBlock Text="接受率 ⓘ" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Acceptance}" Foreground="{StaticResource SuccessBrush}" FontSize="23" Margin="0,5,0,0"/></StackPanel>
        </UniformGrid>
-       <TextBlock Text="— 表示來源未提供，非零值。選取 GPU 後，下方分享與趨勢切換至該卡。" Style="{StaticResource Muted}" FontSize="10" Margin="0,14,0,0"/>
+       <TextBlock Text="— 表示來源未提供。單卡分享使用總計；多卡從礦工輸出取得每卡統計，API 與輸出不重複加總。" Style="{StaticResource Muted}" FontSize="10" Margin="0,14,0,0"/>
       </StackPanel>
      </Border>
     </StackPanel>
@@ -69,14 +72,20 @@
      </StackPanel>
     </Border>
     <Border Grid.Column="2" Style="{StaticResource Panel}"><StackPanel>
-     <TextBlock Text="礦池與連線" Style="{StaticResource SectionTitle}"/>
-     <TextBlock Text="礦池" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Pool}" Margin="0,6,0,14" TextWrapping="Wrap"/>
-     <TextBlock Text="Worker" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Worker}" Margin="0,6,0,14"/>
-     <DockPanel Margin="0,0,0,12"><TextBlock Text="連線狀態" Style="{StaticResource Muted}"/><TextBlock Text="{Binding PoolStatus}" HorizontalAlignment="Right" Foreground="{StaticResource SuccessBrush}"/></DockPanel>
-     <DockPanel Margin="0,0,0,12"><TextBlock Text="最近成功分享" Style="{StaticResource Muted}"/><TextBlock Text="{Binding LastShare}" HorizontalAlignment="Right"/></DockPanel>
-     <DockPanel><TextBlock Text="回應延遲" Style="{StaticResource Muted}"/><TextBlock Text="{Binding Latency}" HorizontalAlignment="Right"/></DockPanel>
+     <TextBlock Text="挖礦礦池" Style="{StaticResource SectionTitle}"/>
+     <TextBlock Text="{Binding Pool}" Margin="0,6,0,14" TextWrapping="Wrap" Foreground="{StaticResource AccentBrush}"/>
+     <TextBlock Text="{Binding PoolSource}" Style="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap"/>
     </StackPanel></Border>
    </Grid>
+   <Border Style="{StaticResource Panel}" Margin="0,0,0,18"><StackPanel>
+    <TextBlock Text="最近成功分享" Style="{StaticResource SectionTitle}"/>
+    <ItemsControl ItemsSource="{Binding RecentShares}"><ItemsControl.ItemTemplate><DataTemplate>
+     <TextBlock Text="{Binding Message}" Foreground="{StaticResource SuccessBrush}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" Margin="0,4"/>
+    </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+   </StackPanel></Border>
+   <Border Style="{StaticResource Panel}" Margin="0,0,0,18"><Expander Header="礦工即時輸出（最近 500 行）" IsExpanded="True">
+    <TextBox Text="{Binding MinerOutputText, Mode=OneWay}" TextChanged="OnMinerOutputChanged" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" FontSize="12" Height="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Margin="0,12,0,0"/>
+   </Expander></Border>
    <Border Style="{StaticResource Panel}"><StackPanel><DockPanel Margin="0,0,0,12"><Button Content="查看全部 →" Command="{Binding EventsCommand}" DockPanel.Dock="Right" Padding="10,5" FontSize="11"/><TextBlock Text="最近事件" FontSize="15" FontWeight="SemiBold"/></DockPanel>
     <ItemsControl ItemsSource="{Binding RecentEvents}"><ItemsControl.ItemTemplate><DataTemplate><Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="80"/><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="{Binding TimeText}" Style="{StaticResource Muted}"/><TextBlock Grid.Column="1" Text="{Binding Category}" Foreground="{StaticResource AccentBrush}" FontSize="12"/><TextBlock Grid.Column="2" Text="{Binding Message}" FontSize="12" TextTrimming="CharacterEllipsis"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
    </StackPanel></Border>

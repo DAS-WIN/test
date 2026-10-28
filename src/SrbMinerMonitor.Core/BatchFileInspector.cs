@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace SrbMinerMonitor.Core;
 
-public sealed record BatchInspection(bool ApiEnabled, int? ApiPort, string? Executable);
+public sealed record BatchInspection(bool ApiEnabled, int? ApiPort, string? Executable, string? Pool = null);
 
 public static partial class BatchFileInspector
 {
@@ -21,7 +21,13 @@ public static partial class BatchFileInspector
             value = value.Replace("%~dp0", directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
             if (!value.Contains('%')) path = Path.GetFullPath(value, directory);
         }
-        return new(enabled, apiPort, path);
+        var minerLines = text.Replace("^\r\n", " ").Replace("^\n", " ").Split('\n')
+            .Where(line => !IgnoreLine().IsMatch(line) && !ControlLine().IsMatch(line) && MinerPath().IsMatch(line)).ToArray();
+        var pool = minerLines.Length == 1 ? PoolPattern().Match(minerLines[0]) : Match.Empty;
+        var poolValue = pool.Success ? (pool.Groups[1].Success ? pool.Groups[1].Value : pool.Groups[2].Value) : null;
+        // Do not resolve BAT variables or expose URL credentials in the overview.
+        if (poolValue?.IndexOfAny(['%', '!', '@', ';', ',', '&', '|']) >= 0) poolValue = null;
+        return new(enabled, apiPort, path, poolValue);
     }
 
     // Preserve the original bytes/encoding; the only inserted/replaced characters are ASCII API arguments.
@@ -64,4 +70,5 @@ public static partial class BatchFileInspector
     [GeneratedRegex(@"(?<![\w-])--api-enable(?=\s|$|[\r\n])", RegexOptions.IgnoreCase)] private static partial Regex ApiFlag();
     [GeneratedRegex(@"--api-port\s+(\d+)(?=\s|$)", RegexOptions.IgnoreCase)] private static partial Regex ApiPortPattern();
     [GeneratedRegex("\"([^\"\r\n]*SRBMiner-MULTI\\.exe)\"|([^\\s\"&|]*SRBMiner-MULTI\\.exe)", RegexOptions.IgnoreCase)] private static partial Regex MinerPath();
+    [GeneratedRegex("(?:^|\\s)--pool\\s+(?:\"([^\"]+)\"|([^\\s^]+))", RegexOptions.IgnoreCase)] private static partial Regex PoolPattern();
 }

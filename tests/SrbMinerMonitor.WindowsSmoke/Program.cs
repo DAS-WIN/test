@@ -139,7 +139,7 @@ internal static class Program
         File.Copy(executable, Path.Combine(directory, "SRBMiner-MULTI.exe"), true);
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
-        const string userShape = "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\nif not exist \"SRBMiner-MULTI.exe\" (\r\n echo ERROR: missing SRBMiner-MULTI.exe\r\n exit /b 1\r\n)\r\n\"%~dp0SRBMiner-MULTI.exe\" --algorithm-gpu pearlhash --disable-cpu --gpu-disable-oc --gpu-off-temperature 80 --pool fixture.example:8048 --tls true --wallet TEST --worker TEA-PC --log-file \"logs\\fixture.log\" --log-file-mode 1\r\npause\r\nendlocal\r\n";
+        const string userShape = "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\nif not exist \"SRBMiner-MULTI.exe\" (\r\n echo ERROR: missing SRBMiner-MULTI.exe\r\n exit /b 1\r\n)\r\n\"%~dp0SRBMiner-MULTI.exe\" --algorithm-gpu pearlhash --disable-cpu --gpu-disable-oc --gpu-off-temperature 80 --pool fixture.example:8048 --tls true --wallet TEST --worker TEA-PC --log-file \"logs\\fixture.log\" --log-file-mode 1 --fixture-no-share-api\r\npause\r\nendlocal\r\n";
         var original = Path.Combine(directory, "original.bat"); var monitoring = Path.Combine(directory, "original.monitor.bat");
         await File.WriteAllTextAsync(original, userShape, Encoding.ASCII);
         await File.WriteAllBytesAsync(monitoring, BatchFileInspector.CreateMonitoringCopy(await File.ReadAllBytesAsync(original), port));
@@ -153,7 +153,13 @@ internal static class Program
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線") || vm.Hashrate == "—" || vm.Gpus.Count != 1 || !vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("BAT -> API -> dashboard failed: " + vm.Notice + " / " + vm.ApiStatus);
             await render("bat-settings"); vm.OverviewCommand.Execute(null); await render("bat-live-api-fixture");
-            Console.WriteLine("PASS: user-shaped BAT monitoring copy -> API -> dashboard.");
+            if (vm.TotalAccepted != "4" || vm.Rejected != "1" || vm.Pool != "fixture.example:8048") throw new InvalidOperationException("Output shares or BAT pool missing: " + vm.TotalAccepted + " / " + vm.Pool);
+            vm.SelectedGpu = vm.Gpus[0];
+            if (vm.Accepted != "4" || vm.Acceptance != "80.0 %") throw new InvalidOperationException("Selected GPU hides accepted shares: " + vm.Accepted);
+            if (!vm.MinerOutputText.Contains("FIXTURE_OUTPUT_REDIRECTED=True") || vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=True") || !vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=False")) throw new InvalidOperationException("Miner output must be redirected with its console hidden.");
+            if (vm.RecentShares.Count() != 3 || vm.RecentShares.Any(e => !e.Message.Contains("share accepted"))) throw new InvalidOperationException("Green accepted events missing from application.");
+            await render("accepted-background-miner");
+            Console.WriteLine("PASS: user-shaped BAT -> hidden console -> captured output -> accepted=4, selected GPU=4, rejected=1, acceptance=80%, configured pool.");
             await Execute(vm, vm.StopCommand);
             await AssertPortClosed(port);
             Console.WriteLine("PASS: managed BAT stop closed its API port.");
@@ -170,6 +176,8 @@ internal static class Program
             Console.WriteLine("Restart result: " + vm.Status + " / " + vm.Notice + " / " + vm.ApiStatus);
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("BAT restart failed.");
+            if (vm.Accepted != "4" || vm.TotalAccepted != "4") throw new InvalidOperationException("API plus output counted twice or restart kept old counters.");
+            await VerifyScheduledRestart(vm, render);
             await Execute(vm, vm.StopCommand);
             await AssertPortClosed(port);
             Console.WriteLine("PASS: detached BAT restart and stop completed; API port closed.");
@@ -182,6 +190,31 @@ internal static class Program
             try { Directory.Delete(directory, true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { StartupDiagnostics.Write("Deferred temporary fixture cleanup: " + e.Message); }
         }
+    }
+    private static async Task VerifyScheduledRestart(MainViewModel vm, Func<string, Task> render)
+    {
+        var appPid = Environment.ProcessId;
+        string MinerPid() => System.Text.RegularExpressions.Regex.Matches(vm.MinerOutputText, @"FIXTURE_MINER_PID=(\d+)").Last().Groups[1].Value;
+        var previousMiner = MinerPid();
+        vm.ScheduleEnabled = true; vm.RunValue = "1"; vm.RunUnit = "分鐘"; vm.WaitMinutes = "1"; vm.Repeat = false;
+        await Execute(vm, vm.ApplyScheduleCommand);
+        Console.WriteLine("Scheduled restart: real 1 minute run + 1 minute wait; application PID=" + appPid + ", miner PID=" + previousMiner);
+        var until = DateTimeOffset.Now.AddMinutes(3);
+        var sawWaiting = false; var previousSummary = "";
+        while (DateTimeOffset.Now < until)
+        {
+            if (Environment.ProcessId != appPid || !Application.Current.Windows.OfType<MainWindow>().Any(w => w.IsVisible)) throw new InvalidOperationException("Restart closed the application window.");
+            if (vm.ScheduleSummary.StartsWith("排程錯誤")) throw new InvalidOperationException(vm.ScheduleSummary);
+            if (vm.ScheduleSummary.StartsWith("等待重啟")) sawWaiting = true;
+            var phase = vm.ScheduleSummary.Split('·')[0];
+            if (phase != previousSummary) { Console.WriteLine("Schedule phase: " + vm.ScheduleSummary); previousSummary = phase; }
+            if (sawWaiting && vm.ScheduleSummary == "自動重啟未啟用") break;
+            await Task.Delay(200);
+        }
+        await WaitForApi(vm);
+        if (!sawWaiting || vm.ScheduleSummary != "自動重啟未啟用" || MinerPid() == previousMiner || vm.TotalAccepted != "4") throw new InvalidOperationException("Schedule did not restart only the miner: " + vm.ScheduleSummary);
+        await render("scheduled-restart-completed");
+        Console.WriteLine("PASS: real scheduled stop -> full 1-minute wait -> new miner PID=" + MinerPid() + "; application PID unchanged=" + appPid + "; window remains visible; accepted resets to 4.");
     }
     private static async Task AssertPortClosed(int port)
     {

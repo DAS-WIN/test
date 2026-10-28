@@ -23,6 +23,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private MinerSettings? _activeSettings;
     private RestartOptions _restart = new();
     private MinerSnapshot? _snapshot;
+    private readonly MinerOutput _minerOutput = new();
+    private readonly Queue<string> _outputLines = new();
+    private Guid _outputSession;
+    private string? _batchPool;
     private bool _demo, _busy, _scheduleOpen, _apiHealthy;
     private string _page = "Overview", _notice = "請先設定礦工，或開啟示範模式預覽介面。", _eventFilter = "全部", _metric = "算力", _range = "15 分鐘";
     private GpuRow? _selectedGpu;
@@ -103,7 +107,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string Power => Display.Number(_snapshot?.TotalPower, "W");
     public string Efficiency => Display.Hash(_snapshot?.Efficiency, true, _snapshot?.TotalHashrate);
     public string Temperature => Display.Number(_snapshot?.MaxTemperature, "°C", "0");
-    private ShareStats Shares => SelectedGpu?.Metrics.Shares ?? (SelectedGpu is null ? _snapshot?.Shares : null) ?? new();
+    private ShareStats TotalShares => MinerOutput.Prefer(CurrentSnapshot?.Shares, _minerOutput.Total);
+    private MinerSnapshot? CurrentSnapshot => !_demo && _controller.IsRunning && _lastControllerSession != _controller.Session ? null : _snapshot;
+    private ShareStats Shares => SelectedGpu is null ? TotalShares :
+        MinerOutput.Prefer(CurrentSnapshot?.Gpus.FirstOrDefault(g => g.Id == SelectedGpu.Metrics.Id)?.Shares ?? (Gpus.Count == 1 ? CurrentSnapshot?.Shares : null),
+            _minerOutput.Gpus.GetValueOrDefault(SelectedGpu.Metrics.Id) ?? (Gpus.Count == 1 ? TotalShares : null));
+    public string TotalAccepted => Display.Count(TotalShares.Accepted);
+    public string MinerOutputText => string.Join(Environment.NewLine, _outputLines);
+    public IEnumerable<MonitorEvent> RecentShares => Events.Where(e => e.Category == "分享" && e.Message.Contains("accepted", StringComparison.OrdinalIgnoreCase)).Take(3);
     public string Accepted => Display.Count(Shares.Accepted);
     public string Rejected => Display.Count(Shares.Rejected);
     public string Stale => Display.Count(Shares.Stale);
@@ -111,7 +122,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string HardwareErrors => Display.Count(Shares.HardwareErrors);
     public string Acceptance => Display.Number(Shares.Acceptance, "%", "0.0");
     public string ShareTitle => SelectedGpu is null ? "全部 GPU 分享統計" : $"GPU #{SelectedGpu.Metrics.Id} 分享統計";
-    public string Pool => _snapshot?.Pool ?? (_demo ? "pool.example.com:3333" : MonitoringSettings.UseBatchFile ? "由 BAT 設定（API 未提供）" : string.IsNullOrEmpty(MonitoringSettings.PoolHost) ? "尚未設定" : MonitoringSettings.PoolAddress);
+    public string Pool => _snapshot?.Pool ?? (_demo ? "pool.example.com:3333" : MonitoringSettings.UseBatchFile ? _batchPool ?? "等待礦池位址" : string.IsNullOrEmpty(MonitoringSettings.PoolHost) ? "尚未設定" : MonitoringSettings.PoolAddress);
+    public string PoolSource => _snapshot?.Pool is not null ? "礦工回報" : MonitoringSettings.UseBatchFile ? "目前 BAT 的礦池設定" : "目前挖礦設定";
     public string Worker => _demo ? "rig-01" : MonitoringSettings.UseBatchFile ? "由 BAT 設定" : MonitoringSettings.Worker;
     public string PoolStatus => _snapshot?.PoolConnected switch { true => "已連線", false => "已斷線", _ => "未提供" };
     public string Latency => Display.Number(_snapshot?.Latency, "ms", "0");
@@ -159,7 +171,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _store = store ?? new SettingsStore();
         _controller = CreateController(_process);
         Settings.PropertyChanged += (_, _) => { Changed(nameof(SettingsFooterHint)); Changed(nameof(SaveStartText)); Changed(nameof(StartRequirement)); CommandManager.InvalidateRequerySuggested(); };
-        _process.Log += line => Application.Current.Dispatcher.BeginInvoke(() => AddEvent(Classify(line), line));
+        _process.Log += line =>
+        {
+            var session = _process.OutputSession;
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                if (session != _process.OutputSession) return;
+                if (_outputSession != session) { _outputSession = session; _minerOutput.Reset(); }
+                var clean = MinerOutput.Clean(line);
+                _minerOutput.Read(clean);
+                _outputLines.Enqueue(Redact(clean));
+                while (_outputLines.Count > 500) _outputLines.Dequeue();
+                AddEvent(Classify(clean), clean);
+                Changed(nameof(MinerOutputText)); Changed(nameof(RecentShares)); Refresh();
+            });
+        };
         AsyncCommand Command(Func<Task> action, Func<bool>? can = null) => new(() => Busy(action), ShowError, () => !IsBusy && (can?.Invoke() ?? true));
         OverviewCommand = new RelayCommand(() => Navigate("Overview"));
         SettingsCommand = new RelayCommand(() => Navigate("Settings"));
@@ -200,7 +226,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private MinerController CreateController(IMinerProcess process)
     {
         var controller = new MinerController(process);
-        controller.Event += text => AddEvent(text.Contains("排程") || text.Contains("重啟") ? "排程" : "礦工", text);
+        controller.Event += text => { AddEvent(text.Contains("排程") || text.Contains("重啟") ? "排程" : "礦工", text); Refresh(); };
         return controller;
     }
     private async Task Busy(Func<Task> action)
@@ -234,6 +260,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_saved.Validate() is string error) { Navigate("Settings"); throw new ArgumentException(error); }
             await EnsureApiPortFree(_saved.ApiPort);
             RememberSecret(_saved.Password);
+            await ReadBatchPool(_saved);
         }
         Notice = _saved.UseBatchFile ? "正在啟動指定 BAT…" : "正在啟動礦工…";
         _apiHealthy = false; ApiStatus = "等待新程序的 API…";
@@ -245,6 +272,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private async Task RestartSaved()
     {
         if (!_demo && _saved.Validate() is string error) throw new ArgumentException(error);
+        if (!_demo) await ReadBatchPool(_saved);
         _apiHealthy = false; ApiStatus = "正在重啟，等待新程序的 API…";
         await _controller.RestartAsync(_saved);
         if (!_demo) _activeSettings = _saved;
@@ -278,6 +306,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var path = Path.GetFullPath(Settings.BatchFile);
         if (new FileInfo(path).Length > 1024 * 1024) throw new FormatException("BAT 超過 1 MB，請確認檔案內容。");
         var info = BatchFileInspector.Inspect(await File.ReadAllTextAsync(path), Path.GetDirectoryName(path)!);
+        _batchPool = info.Pool;
         if (info.ApiPort is int port) Settings.ApiPort = port.ToString();
         if (info.Executable is string exe && File.Exists(exe)) Settings.Executable = exe;
         Settings.BatchHint = info.ApiEnabled ? $"已找到 --api-enable；監控連接埠 {Settings.ApiPort}。儲存後即可啟動。" :
@@ -379,6 +408,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Notice = "設定已儲存；運行中的礦工將在重啟後套用。";
         if (restart)
         {
+            await ReadBatchPool(settings);
             if (!_controller.IsRunning) await EnsureApiPortFree(settings.ApiPort);
             _apiHealthy = false; ApiStatus = "正在啟動，等待新程序的 API…";
             Notice = settings.UseBatchFile ? "正在停止舊程序並啟動指定 BAT…" : "正在重新啟動礦工…";
@@ -388,6 +418,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Notice = settings.UseBatchFile ? "已啟動指定 BAT，等待 API 連線。" : "設定已儲存，礦工已重新啟動。";
             await Poll();
         }
+    }
+    private async Task ReadBatchPool(MinerSettings settings)
+    {
+        _batchPool = settings.UseBatchFile ? BatchFileInspector.Inspect(await File.ReadAllTextAsync(settings.BatchFile), Path.GetDirectoryName(Path.GetFullPath(settings.BatchFile))!).Pool : null;
     }
     private static Task EnsureApiPortFree(int port)
     {
@@ -429,7 +463,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _demoMiner = _demo ? new DemoMiner() : null;
         _controller = CreateController(_demoMiner is not null ? _demoMiner : _process);
         _snapshot = null; _activeSettings = null; _lastSession = Guid.Empty; _lastControllerSession = Guid.Empty;
-        History.Clear(); Gpus.Clear(); SelectedGpu = null; _apiHealthy = false; _nextPoll = default;
+        History.Clear(); Gpus.Clear(); SelectedGpu = null;
+        _minerOutput.Reset(); _outputLines.Clear(); _outputSession = Guid.Empty; _apiHealthy = false; _nextPoll = default;
         _restart = _demo ? new() : _saved.Restart;
         Notice = _demo ? "示範模式：所有 GPU、分享與趨勢皆為模擬資料，未連接實際礦工。" : "已切回本機監控，等待 API 資料。";
         AddEvent("礦工", Notice);
@@ -443,9 +478,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             while (await timer.WaitForNextTickAsync(_lifetime.Token))
             {
                 var phase = _controller.Scheduler.Phase;
+                var session = _controller.Session;
                 try
                 {
                     await _controller.TickAsync(_lifetime.Token);
+                    if (session != _controller.Session)
+                    {
+                        _apiHealthy = false; ApiStatus = "自動重啟礦工完成，等待新程序的 API…"; _nextPoll = default;
+                        Notice = "礦工已自動重新啟動；監控應用程式持續運行。";
+                    }
                     if (phase == SchedulePhase.Waiting && _controller.Scheduler.Phase == SchedulePhase.Disabled)
                     {
                         _restart = _restart with { Enabled = false };
@@ -480,7 +521,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 snapshot = NvidiaSensors.Merge(data.Snapshot, data.Buses, sensors) with { Session = controller.Session };
             }
             if (controller != _controller || demo != _demo) return;
-            if (!_apiHealthy) AddEvent("連線", demo ? "示範資料更新已啟用。" : "API 已連線；礦池連線狀態需另有來源確認。");
+            if (!_apiHealthy) AddEvent("連線", demo ? "示範資料更新已啟用。" : "本機 API 已連線。");
             _apiHealthy = true;
             ApiStatus = demo ? "示範資料（沒有連接實際 API）" : $"API 已連線 · {snapshot.Timestamp:HH:mm:ss}";
             if (_snapshot is null || _lastControllerSession != controller.Session) _lastSession = controller.Session;
@@ -509,7 +550,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private void Refresh()
     {
-        foreach (var property in new[] { nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(Worker), nameof(PoolStatus), nameof(Latency), nameof(LastShare), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(IsDemo), nameof(ModeLabel), nameof(ModeAction), nameof(IsLive), nameof(ApiEndpoint), nameof(SettingsFooterHint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
+        foreach (var property in new[] { nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(TotalAccepted), nameof(MinerOutputText), nameof(PoolSource), nameof(RecentShares), nameof(Accepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(Worker), nameof(PoolStatus), nameof(Latency), nameof(LastShare), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(IsDemo), nameof(ModeLabel), nameof(ModeAction), nameof(IsLive), nameof(ApiEndpoint), nameof(SettingsFooterHint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
         CommandManager.InvalidateRequerySuggested();
     }
     public void Dispose() { _lifetime.Cancel(); _api.Dispose(); _process.Dispose(); _lifetime.Dispose(); }

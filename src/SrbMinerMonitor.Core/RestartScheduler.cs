@@ -97,6 +97,7 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
         if (Scheduler.Phase == SchedulePhase.Running)
         {
             Scheduler.BeginStop();
+            Event?.Invoke("自動重啟：運行時間到，正在停止礦工；監控視窗保持開啟。");
             _expectedRunning = false;
             await process.StopAsync(ct);
             if (process.IsRunning) throw new InvalidOperationException("舊礦工仍在運行，排程已暫停。");
@@ -106,6 +107,7 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
         else if (Scheduler.Phase == SchedulePhase.Waiting)
         {
             Scheduler.BeginStart();
+            Event?.Invoke("自動重啟：等待時間到，正在重新啟動礦工。");
             await StartCore(_active ?? throw new InvalidOperationException("沒有已啟動的設定。"), ct);
             Scheduler.ConfirmStarted(true);
         }
