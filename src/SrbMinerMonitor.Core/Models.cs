@@ -51,6 +51,7 @@ public sealed record MinerSettings
     public int ApiPort { get; init; } = 21550;
     public RestartOptions Restart { get; init; } = new();
     public MetricRefreshOptions MetricRefresh { get; init; } = new();
+    public bool RestartOnUnexpectedExit { get; init; }
 
     public string? Validate(bool checkFile = true)
     {

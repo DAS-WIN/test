@@ -24,6 +24,13 @@
     </StackPanel>
     <TextBlock Text="{Binding StartRequirement}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="0,16,0,0"/>
    </StackPanel></Border>
+   <Border Style="{StaticResource Panel}" Margin="0,18,0,0"><StackPanel>
+    <TextBlock Text="非預期退出處理" Style="{StaticResource SectionTitle}"/>
+    <CheckBox x:Name="UnexpectedExitRestartOption" Content="礦工非預期退出後自動重啟" IsChecked="{Binding Settings.RestartOnUnexpectedExit}"/>
+    <TextBlock Text="儲存後立即套用，不需啟用定時重啟。礦工意外退出後等待 10 秒再啟動；若啟動失敗，會倒數後再次嘗試。" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+    <TextBlock Text="定時重啟已啟用時：意外退出後改依排程的「停止後等待時間」倒數重啟，成功啟動後重新計算運行時間。兩項同時啟用只會啟動一個礦工。" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+    <TextBlock Text="手動停止會取消待重啟動作。重新開啟監控程式不會自行開始挖礦。" Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+   </StackPanel></Border>
    <Border Style="{StaticResource Panel}"><StackPanel>
     <TextBlock Text="監控設定" Style="{StaticResource SectionTitle}"/>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="20"/><ColumnDefinition/></Grid.ColumnDefinitions>

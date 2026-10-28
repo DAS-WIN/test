@@ -1,6 +1,6 @@
 namespace SrbMinerMonitor.Core;
 
-public enum SchedulePhase { Disabled, Running, Stopping, Waiting, Starting, Error }
+public enum SchedulePhase { Disabled, Running, Stopping, Waiting, Starting, Error, Recovering }
 
 public sealed class RestartScheduler(TimeProvider? time = null)
 {
@@ -11,9 +11,9 @@ public sealed class RestartScheduler(TimeProvider? time = null)
     public SchedulePhase Phase { get; private set; }
     public string? Error { get; private set; }
     public bool Armed => Phase is not (SchedulePhase.Disabled or SchedulePhase.Error);
-    public TimeSpan Remaining => Phase is SchedulePhase.Running or SchedulePhase.Waiting
+    public TimeSpan Remaining => Phase is SchedulePhase.Running or SchedulePhase.Waiting or SchedulePhase.Recovering
         ? TimeSpan.FromTicks(Math.Max(0, (_duration - _time.GetElapsedTime(_started)).Ticks)) : TimeSpan.Zero;
-    public bool Due => Phase is SchedulePhase.Running or SchedulePhase.Waiting && Remaining <= TimeSpan.Zero;
+    public bool Due => Phase is SchedulePhase.Running or SchedulePhase.Waiting or SchedulePhase.Recovering && Remaining <= TimeSpan.Zero;
 
     public void Apply(RestartOptions options, bool ownedRunning)
     {
@@ -26,10 +26,11 @@ public sealed class RestartScheduler(TimeProvider? time = null)
     }
     public void BeginStop() => Phase = SchedulePhase.Stopping;
     public void ConfirmStopped() => Begin(SchedulePhase.Waiting, TimeSpan.FromMinutes(Options.WaitMinutes));
+    public void BeginRecovery() { Error = null; Begin(SchedulePhase.Recovering, TimeSpan.FromSeconds(10)); }
     public void BeginStart() => Phase = SchedulePhase.Starting;
     public void ConfirmStarted(bool automatic)
     {
-        if (!Options.Enabled) return;
+        if (!Options.Enabled) { Disable(); return; }
         if (automatic && !Options.Repeat) { Disable(); return; }
         Begin(SchedulePhase.Running, Options.RunDuration);
     }
@@ -51,12 +52,22 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private MinerSettings? _active;
     private bool _expectedRunning;
+    private bool _recoverUnexpectedExit;
     public RestartScheduler Scheduler { get; } = new(time);
     public bool IsRunning => process.IsRunning;
     public bool IsTransitioning { get; private set; }
     public Guid Session { get; private set; } = Guid.NewGuid();
     public long AutomaticRestarts { get; private set; }
     public event Action<string>? Event;
+
+    // Applies live without replacing the BAT/settings used by the currently owned miner.
+    public Task ApplyRecoveryAsync(bool enabled, CancellationToken ct = default) => Serialize(() =>
+    {
+        _recoverUnexpectedExit = enabled;
+        if (_active is not null) _active = _active with { RestartOnUnexpectedExit = enabled };
+        if (!enabled && Scheduler.Phase == SchedulePhase.Recovering) Scheduler.Disable();
+        return Task.CompletedTask;
+    }, ct);
 
     public Task StartAsync(MinerSettings settings, CancellationToken ct = default) => Serialize(async () =>
     {
@@ -90,8 +101,23 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
         if (_expectedRunning && !process.IsRunning)
         {
             _expectedRunning = false;
-            Scheduler.Fail("礦工非預期退出，排程已暫停。");
-            Event?.Invoke(Scheduler.Error!);
+            // Clean up the old BAT and confirm port release before arming any new launch.
+            await process.StopAsync(ct);
+            if (Scheduler.Armed && Scheduler.Options.Enabled)
+            {
+                Scheduler.ConfirmStopped();
+                Event?.Invoke($"礦工非預期退出；依排程等待 {Scheduler.Options.WaitMinutes} 分鐘後重啟，監控視窗保持開啟。");
+            }
+            else if (_recoverUnexpectedExit)
+            {
+                Scheduler.BeginRecovery();
+                Event?.Invoke("礦工非預期退出；10 秒後自動重啟，監控視窗保持開啟。");
+            }
+            else
+            {
+                Scheduler.Fail("礦工非預期退出；未啟用異常退出自動重啟。");
+                Event?.Invoke(Scheduler.Error!);
+            }
             return;
         }
         if (!Scheduler.Due) return;
@@ -105,11 +131,22 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
             Scheduler.ConfirmStopped();
             Event?.Invoke("礦工已完全停止，開始等待自動重啟。");
         }
-        else if (Scheduler.Phase == SchedulePhase.Waiting)
+        else if (Scheduler.Phase is SchedulePhase.Waiting or SchedulePhase.Recovering)
         {
+            var scheduled = Scheduler.Phase == SchedulePhase.Waiting;
             Scheduler.BeginStart();
             Event?.Invoke("自動重啟：等待時間到，正在重新啟動礦工。");
-            await StartCore(_active ?? throw new InvalidOperationException("沒有已啟動的設定。"), ct);
+            try { await StartCore(_active ?? throw new InvalidOperationException("沒有已啟動的設定。"), ct); }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                // A failed recovery must not silently freeze the timer or create a second miner.
+                _expectedRunning = false;
+                await process.StopAsync(ct);
+                if (process.IsRunning) throw new InvalidOperationException("舊礦工仍在運行，禁止自動啟動第二個礦工。", e);
+                if (scheduled) Scheduler.ConfirmStopped(); else Scheduler.BeginRecovery();
+                Event?.Invoke($"自動啟動失敗：{e.Message}；將依倒數再次嘗試。");
+                return;
+            }
             Scheduler.ConfirmStarted(true);
             AutomaticRestarts++;
         }
@@ -120,6 +157,7 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
         await process.StartAsync(settings, ct);
         if (!process.IsRunning) throw new InvalidOperationException("礦工啟動後立即退出，請查看事件紀錄。");
         _active = settings;
+        _recoverUnexpectedExit = settings.RestartOnUnexpectedExit;
         _expectedRunning = true;
         Session = Guid.NewGuid();
         Event?.Invoke("礦工已啟動，建立新的統計階段。");

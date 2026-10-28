@@ -60,20 +60,91 @@ public sealed class SchedulerTests
         clock.Advance(TimeSpan.FromMinutes(10)); await controller.TickAsync();
         Assert.Equal(SchedulePhase.Error, controller.Scheduler.Phase); Assert.Equal(1, miner.Starts); Assert.True(miner.IsRunning);
     }
-    [Fact] public async Task StartFailureAfterWaitPausesSchedule()
+    [Fact] public async Task StartFailureAfterWaitRetriesAfterAnotherFullWait()
     {
         var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
         await controller.StartAsync(Settings); await controller.ApplyScheduleAsync(Options);
         clock.Advance(TimeSpan.FromMinutes(1)); await controller.TickAsync(); miner.FailStart = true;
-        clock.Advance(TimeSpan.FromMinutes(1)); await Assert.ThrowsAsync<IOException>(() => controller.TickAsync());
-        Assert.Equal(SchedulePhase.Error, controller.Scheduler.Phase); Assert.False(miner.IsRunning);
+        clock.Advance(TimeSpan.FromMinutes(1)); await controller.TickAsync();
+        Assert.Equal(SchedulePhase.Waiting, controller.Scheduler.Phase); Assert.False(miner.IsRunning);
+        Assert.Equal(TimeSpan.FromMinutes(1), controller.Scheduler.Remaining);
+        miner.FailStart = false; clock.Advance(TimeSpan.FromSeconds(59)); await controller.TickAsync(); Assert.Equal(1, miner.Starts);
+        clock.Advance(TimeSpan.FromSeconds(1)); await controller.TickAsync(); Assert.Equal(2, miner.Starts);
     }
-    [Fact] public async Task UnexpectedCrashDoesNotAutoRestart()
+    [Fact] public async Task UnexpectedCrashWithoutEitherOptionDoesNotAutoRestart()
     {
         var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
-        await controller.StartAsync(Settings); await controller.ApplyScheduleAsync(Options); miner.Crash();
+        await controller.StartAsync(Settings); miner.Crash();
         clock.Advance(TimeSpan.FromMinutes(10)); await controller.TickAsync();
         Assert.Equal(SchedulePhase.Error, controller.Scheduler.Phase); Assert.Equal(1, miner.Starts);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ScheduledCrashUsesConfiguredWaitAndRestartsOnlyOnce(bool recoveryEnabled)
+    {
+        var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
+        await controller.StartAsync(Settings with { RestartOnUnexpectedExit = recoveryEnabled });
+        await controller.ApplyScheduleAsync(Options); clock.Advance(TimeSpan.FromSeconds(20)); miner.Crash();
+        await controller.TickAsync();
+        Assert.Equal(SchedulePhase.Waiting, controller.Scheduler.Phase);
+        Assert.Equal(TimeSpan.FromMinutes(1), controller.Scheduler.Remaining);
+        clock.Advance(TimeSpan.FromSeconds(59)); await controller.TickAsync(); Assert.Equal(1, miner.Starts);
+        clock.Advance(TimeSpan.FromSeconds(1)); await Task.WhenAll(controller.TickAsync(), controller.TickAsync());
+        Assert.Equal(2, miner.Starts); Assert.True(miner.IsRunning); Assert.Equal(1, controller.AutomaticRestarts);
+        Assert.Equal(SchedulePhase.Running, controller.Scheduler.Phase); Assert.Equal(TimeSpan.FromMinutes(1), controller.Scheduler.Remaining);
+    }
+    [Fact] public async Task RecoveryWorksWithoutScheduleAndCanRecoverRepeatedCrashes()
+    {
+        var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
+        await controller.StartAsync(Settings with { RestartOnUnexpectedExit = true });
+        for (var i = 0; i < 2; i++)
+        {
+            miner.Crash(); await controller.TickAsync(); Assert.Equal(SchedulePhase.Recovering, controller.Scheduler.Phase);
+            Assert.False(controller.Scheduler.Options.Enabled);
+            clock.Advance(TimeSpan.FromSeconds(9)); await controller.TickAsync(); Assert.False(miner.IsRunning);
+            clock.Advance(TimeSpan.FromSeconds(1)); await controller.TickAsync(); Assert.True(miner.IsRunning);
+            Assert.Equal(SchedulePhase.Disabled, controller.Scheduler.Phase);
+        }
+        Assert.Equal(3, miner.Starts); Assert.Equal(2, controller.AutomaticRestarts);
+    }
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ManualStopOrDisablingRecoveryCancelsPendingRecovery(bool manualStop)
+    {
+        var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
+        await controller.StartAsync(Settings); await controller.ApplyRecoveryAsync(true); miner.Crash(); await controller.TickAsync();
+        Assert.Equal(SchedulePhase.Recovering, controller.Scheduler.Phase);
+        if (manualStop) await controller.StopAsync(); else await controller.ApplyRecoveryAsync(false);
+        clock.Advance(TimeSpan.FromDays(1)); await controller.TickAsync();
+        Assert.Equal(1, miner.Starts); Assert.False(miner.IsRunning); Assert.False(controller.Scheduler.Armed);
+    }
+    [Fact] public async Task RecoveryStartFailureRetriesWithoutCompletingOneShotSchedule()
+    {
+        var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
+        await controller.StartAsync(Settings); await controller.ApplyScheduleAsync(Options with { Repeat = false });
+        miner.Crash(); await controller.TickAsync(); miner.FailStart = true;
+        clock.Advance(TimeSpan.FromMinutes(1)); await controller.TickAsync(); Assert.True(controller.Scheduler.Armed);
+        miner.FailStart = false; clock.Advance(TimeSpan.FromMinutes(1)); await controller.TickAsync();
+        Assert.Equal(2, miner.Starts); Assert.False(controller.Scheduler.Armed); Assert.Equal(1, controller.AutomaticRestarts);
+    }
+    [Fact] public async Task StandaloneRecoveryRetriesStartFailureAndManualStartCancelsOldCountdown()
+    {
+        var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
+        await controller.StartAsync(Settings with { RestartOnUnexpectedExit = true }); miner.Crash(); await controller.TickAsync();
+        miner.FailStart = true; clock.Advance(TimeSpan.FromSeconds(10)); await controller.TickAsync();
+        Assert.Equal(SchedulePhase.Recovering, controller.Scheduler.Phase); Assert.Equal(TimeSpan.FromSeconds(10), controller.Scheduler.Remaining);
+        miner.FailStart = false; await controller.StartAsync(Settings with { RestartOnUnexpectedExit = true });
+        clock.Advance(TimeSpan.FromSeconds(20)); await controller.TickAsync();
+        Assert.Equal(2, miner.Starts); Assert.True(miner.IsRunning); Assert.False(controller.Scheduler.Armed);
+    }
+    [Fact] public async Task RecoveryDoesNotArmOnFreshApplicationOrAfterIntentionalStop()
+    {
+        var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
+        await controller.ApplyRecoveryAsync(true); clock.Advance(TimeSpan.FromDays(1)); await controller.TickAsync(); Assert.Equal(0, miner.Starts);
+        await controller.StartAsync(Settings with { RestartOnUnexpectedExit = true }); await controller.StopAsync();
+        clock.Advance(TimeSpan.FromDays(1)); await controller.TickAsync(); Assert.Equal(1, miner.Starts);
     }
     [Fact] public async Task DisablingScheduleKeepsMinerRunning()
     {

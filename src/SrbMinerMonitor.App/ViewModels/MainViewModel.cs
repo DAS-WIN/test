@@ -67,7 +67,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ApiEndpoint => $"http://127.0.0.1:{MonitoringSettings.ApiPort}";
     public string StartRequirement { get { try { return Settings.ToSettings(_restart).Validate() ?? "已準備好，可儲存並啟動。"; } catch (ArgumentException e) { return e.Message; } } }
     public string SaveStartText => _controller.IsRunning ? "儲存並重啟礦工" : "儲存並啟動 BAT";
-    public string SettingsFooterHint => "更新間隔儲存後立即套用；BAT 變更在啟動或重啟礦工後套用。";
+    public string SettingsFooterHint => "更新間隔與異常重啟選項儲存後立即套用；BAT 變更在啟動或重啟後套用。";
     public string Status => _controller.IsTransitioning ? "礦工處理中" : _controller.IsRunning ? (_apiHealthy ? "BAT 運行中 · API 已連線" : "BAT 運行中 · 等待 API") : _apiHealthy ? "外部礦工 · 僅監控" : "礦工已停止";
     public string RigTitle => MonitoringSettings.RigName + " / " + (_snapshot?.Algorithm ?? "等待演算法資訊");
     public string Version => "SRBMiner " + (_snapshot?.Version ?? "—") + "  ·  BAT 監控";
@@ -128,11 +128,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SchedulePhase.Running => "運行中 · 距離停止 " + Countdown,
         SchedulePhase.Stopping => "停止中 · 等待礦工完全退出",
         SchedulePhase.Waiting => "等待重啟 · 剩餘 " + Countdown,
+        SchedulePhase.Recovering => "異常退出 · 等待重啟 " + Countdown,
         SchedulePhase.Starting => "啟動中 · 等待新程序",
         SchedulePhase.Error => "排程錯誤 · " + _controller.Scheduler.Error,
-        _ => _restart.Enabled ? "排程設定已儲存 · 尚未啟用" : "自動重啟未啟用"
+        _ => _restart.Enabled ? "排程設定已儲存 · 尚未啟用" : _saved.RestartOnUnexpectedExit ? "異常退出自動重啟已啟用 · 定時排程未啟用" : "自動重啟未啟用"
     };
-    public string ScheduleDetail => $"運行 {_restart.RunValue} {(_restart.Hours ? "小時" : "分鐘")} → 停止 {_restart.WaitMinutes} 分鐘 → 重新啟動";
+    public string ScheduleDetail => _restart.Enabled
+        ? $"運行 {_restart.RunValue} {(_restart.Hours ? "小時" : "分鐘")} → 停止 {_restart.WaitMinutes} 分鐘 → 重新啟動"
+        : _saved.RestartOnUnexpectedExit ? "非預期退出 → 等待 10 秒 → 重啟礦工" : "定時重啟與異常退出自動重啟皆未啟用";
     private string Countdown => $"{(int)_controller.Scheduler.Remaining.TotalHours:00}:{_controller.Scheduler.Remaining.Minutes:00}:{_controller.Scheduler.Remaining.Seconds:00}";
 
     public MainViewModel(SettingsStore? store = null)
@@ -257,7 +260,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // Validate automatic API insertion before stopping a running miner.
         if (restart && settings.UsePastedBatch) _ = PastedBatch.Prepare(settings.BatchContent, settings.ApiPort);
         await _store.SaveAsync(settings); _saved = settings; _settingsLoaded = true;
-        Notice = "監控更新間隔已套用；BAT 變更需重啟礦工。";
+        await _controller.ApplyRecoveryAsync(settings.RestartOnUnexpectedExit);
+        Notice = "監控更新間隔與異常重啟選項已套用；BAT 變更需重啟礦工。";
         if (!restart) { _nextPoll = default; await Poll(); return; }
         await ReadBatchPool(settings); _apiHealthy = false; ApiStatus = "正在啟動 BAT，等待 API…";
         await _controller.RestartAsync(settings); _activeSettings = settings;

@@ -47,6 +47,7 @@ internal static class Program
             {
                 if (vm.Settings.RefreshValue != "1" || vm.Settings.RefreshUnit != "分" || !vm.Settings.RefreshUnits.SequenceEqual(new[] { "秒", "分", "時", "天" })) throw new InvalidOperationException("Refresh interval must default to one minute with four units.");
                 if (vm.Gpus.Count != 0 || vm.Hashrate != "—") throw new InvalidOperationException("Startup must be empty; no demonstration data or automatic mining.");
+                if (vm.Settings.RestartOnUnexpectedExit) throw new InvalidOperationException("Unexpected-exit recovery must default to off.");
                 if (Descendants<Button>(window).Any(b => b.Content?.ToString()?.Contains("示範") == true)) throw new InvalidOperationException("Demo UI remains.");
                 if (window.Background is not SolidColorBrush rootBrush || rootBrush.Color != Color.FromRgb(16, 23, 32)) throw new InvalidOperationException("Window must explicitly use the dark background.");
                 if (window.FontSize != 13) throw new InvalidOperationException("MainWindow must explicitly apply its base Window style.");
@@ -210,6 +211,7 @@ internal static class Program
             if (vm.Accepted != "4" || vm.TotalAccepted != "4") throw new InvalidOperationException("API plus output counted twice or restart kept old counters.");
             await VerifyRefreshAndLiveFeed(vm, directory, output, render);
             await VerifyScheduledRestart(vm, render);
+            await VerifyUnexpectedExitRecovery(vm, directory, output, render);
             await InvokeMinerButton(vm, "StopMinerButton");
             await AssertPortClosed(port);
             Console.WriteLine("PASS: detached BAT restart and stop completed; API port closed.");
@@ -285,6 +287,62 @@ internal static class Program
         if (!sawWaiting || vm.ScheduleSummary != "自動重啟未啟用" || MinerPid() == previousMiner || vm.TotalAccepted != "4") throw new InvalidOperationException("Schedule did not restart only the miner: " + vm.ScheduleSummary);
         await render("scheduled-restart-completed");
         Console.WriteLine("PASS: real scheduled stop -> full 1-minute wait -> new miner PID=" + MinerPid() + "; application PID unchanged=" + appPid + "; window remains visible; accepted resets to 4.");
+    }
+    private static async Task VerifyUnexpectedExitRecovery(MainViewModel vm, string directory, string output, Func<string, Task> render)
+    {
+        var appPid = Environment.ProcessId;
+        var window = Application.Current.Windows.OfType<MainWindow>().Single();
+        string MinerPid() => System.Text.RegularExpressions.Regex.Matches(vm.MinerOutputText, @"FIXTURE_MINER_PID=(\d+)").Last().Groups[1].Value;
+        async Task Until(Func<bool> condition, int seconds)
+        {
+            var deadline = DateTimeOffset.Now.AddSeconds(seconds);
+            while (!condition() && DateTimeOffset.Now < deadline)
+            {
+                if (!window.IsVisible || Environment.ProcessId != appPid || Native.GetConsoleWindow() != IntPtr.Zero) throw new InvalidOperationException("Crash recovery closed or attached the GUI.");
+                await Task.Delay(50);
+            }
+            if (!condition()) throw new TimeoutException("Crash recovery did not advance: " + vm.ScheduleSummary + " / " + vm.Notice);
+        }
+        async Task CrashFixture()
+        {
+            // This PID comes only from our owned, non-mining fixture's output.
+            using var fixture = Process.GetProcessById(int.Parse(MinerPid()));
+            fixture.Kill(); await fixture.WaitForExitAsync();
+        }
+        // Test the original user's BAT shape with trailing PAUSE, not just detached START.
+        var monitoring = Path.Combine(directory, "original.monitor.bat");
+        vm.Settings.BatchFile = monitoring; vm.Settings.RestartOnUnexpectedExit = true;
+        await Execute(vm, vm.SaveRestartCommand); await WaitForApi(vm);
+        vm.SettingsCommand.Execute(null); await render("unexpected-exit-settings");
+        if (Descendants<CheckBox>(window).Single(c => c.Name == "UnexpectedExitRestartOption").IsChecked != true) throw new InvalidOperationException("Recovery checkbox did not bind.");
+        vm.OverviewCommand.Execute(null);
+        if (!(await new SettingsStore(Path.Combine(output, "isolated-settings")).LoadAsync()).RestartOnUnexpectedExit) throw new InvalidOperationException("Recovery option did not persist.");
+        var previous = MinerPid();
+        var watch = Stopwatch.StartNew(); await CrashFixture();
+        await Until(() => vm.ScheduleSummary.StartsWith("異常退出 · 等待重啟"), 8);
+        await render("unexpected-exit-countdown");
+        await Until(() => MinerPid() != previous && vm.Status.StartsWith("BAT 運行中"), 18);
+        await WaitForApi(vm);
+        if (watch.Elapsed < TimeSpan.FromSeconds(10)) throw new InvalidOperationException("Standalone recovery skipped the 10-second wait.");
+        Console.WriteLine("PASS: recovery enabled without schedule; killed owned fixture in BAT with PAUSE -> 10-second countdown -> new miner PID; GUI PID unchanged=" + appPid + "; setting persisted.");
+        // Manual stop while recovery is waiting must cancel any pending relaunch.
+        await CrashFixture(); await Until(() => vm.ScheduleSummary.StartsWith("異常退出 · 等待重啟"), 8);
+        await InvokeMinerButton(vm, "StopMinerButton"); previous = MinerPid();
+        await Task.Delay(TimeSpan.FromSeconds(12));
+        if (MinerPid() != previous || !vm.Status.StartsWith("礦工已停止")) throw new InvalidOperationException("Manual stop did not cancel recovery.");
+        Console.WriteLine("PASS: manual stop during crash countdown cancels pending restart even with recovery setting enabled.");
+        await Execute(vm, vm.StartCommand); await WaitForApi(vm);
+        vm.Settings.RestartOnUnexpectedExit = false; await Execute(vm, vm.SaveCommand);
+        vm.ScheduleEnabled = true; vm.RunValue = "10"; vm.RunUnit = "分鐘"; vm.WaitMinutes = "1"; vm.Repeat = false;
+        await Execute(vm, vm.ApplyScheduleCommand); previous = MinerPid(); await CrashFixture();
+        await Until(() => vm.ScheduleSummary.StartsWith("等待重啟"), 8);
+        watch.Restart(); await render("scheduled-unexpected-exit-countdown");
+        await Task.Delay(TimeSpan.FromSeconds(12));
+        if (MinerPid() != previous || !vm.ScheduleSummary.StartsWith("等待重啟")) throw new InvalidOperationException("Scheduled recovery used the independent 10-second timer instead of configured wait.");
+        await Until(() => MinerPid() != previous && vm.Status.StartsWith("BAT 運行中"), 65); await WaitForApi(vm);
+        if (watch.Elapsed < TimeSpan.FromSeconds(59) || vm.ScheduleSummary != "自動重啟未啟用") throw new InvalidOperationException("Scheduled crash recovery skipped full wait or did not complete one-shot.");
+        await render("scheduled-unexpected-exit-recovered");
+        Console.WriteLine("PASS: recovery checkbox OFF + timed schedule ON; crash interrupts 10-minute run -> configured full 1-minute wait -> exactly one new miner, one-shot completes; GUI PID unchanged=" + appPid + ".");
     }
     private static async Task AssertPortClosed(int port)
     {
