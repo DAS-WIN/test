@@ -7,9 +7,13 @@ namespace SrbMinerMonitor.App;
 
 public partial class App : Application
 {
+    private readonly bool _createStartupWindow;
+    public App() : this(true) { }
+    public App(bool createStartupWindow) => _createStartupWindow = createStartupWindow;
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (!_createStartupWindow) return;
         var window = new MainWindow(e.Args.Contains("--verify-startup")
             ? new SettingsStore(Path.Combine(Path.GetTempPath(), "SRBMiner-verify-" + Guid.NewGuid().ToString("N"))) : null);
         StartupDiagnostics.Write("Main window constructed.");
