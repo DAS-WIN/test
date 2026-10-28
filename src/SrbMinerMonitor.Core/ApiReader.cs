@@ -81,6 +81,7 @@ public sealed class ApiReader : IDisposable
                 buffer.Write(chunk, 0, read);
             }
             var json = System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+            if (string.IsNullOrWhiteSpace(json)) throw new FormatException("礦工 API 尚未提供資料，正在等待初始化完成。");
             return (ApiParser.Parse(json, DateTimeOffset.Now), ApiParser.DeviceBuses(json));
         }
         finally { _gate.Release(); }

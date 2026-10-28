@@ -13,7 +13,7 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly Forms.NotifyIcon? _tray;
     private bool _allowClose, _notified;
-    public MainWindow(bool demo, SettingsStore? store = null)
+    public MainWindow(SettingsStore? store = null)
     {
         _viewModel = new MainViewModel(store);
         InitializeComponent();
@@ -45,7 +45,7 @@ public partial class MainWindow : Window
             _viewModel.ShowError(new InvalidOperationException("系統匣無法使用，視窗仍可正常操作；關閉視窗會停止並退出。"));
         }
         _viewModel.ExitRequested += () => { _allowClose = true; Close(); };
-        Loaded += async (_, _) => { try { await _viewModel.InitializeAsync(demo); } catch (Exception e) { _viewModel.ShowError(e); } };
+        Loaded += async (_, _) => { try { await _viewModel.InitializeAsync(); } catch (Exception e) { _viewModel.ShowError(e); } };
         Closed += (_, _) => { if (_tray is { } tray) { tray.Visible = false; tray.Dispose(); } _viewModel.Dispose(); Application.Current.Shutdown(); };
     }
     private void Restore() { Show(); WindowState = WindowState.Normal; Activate(); }

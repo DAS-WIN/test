@@ -28,7 +28,7 @@ public sealed class TrendChart : FrameworkElement
         var padding = Math.Max((max - min) * 0.2, Math.Max(max * 0.02, 1));
         min = Math.Max(0, min - padding); max += padding;
         var first = samples[0].Time; var last = samples[^1].Time;
-        var duration = Math.Max(5, (last - first).TotalSeconds);
+        var duration = Math.Max(60, (last - first).TotalSeconds);
         Point Point(ChartSample s) => new(rect.Left + (s.Time - first).TotalSeconds / duration * rect.Width,
             rect.Bottom - (s.Value!.Value - min) / (max - min) * rect.Height);
         for (var i = 0; i <= 3; i++)
@@ -40,7 +40,7 @@ public sealed class TrendChart : FrameworkElement
         foreach (var sample in samples)
         {
             if (sample.Value is not double n || !double.IsFinite(n)) { previous = null; continue; }
-            if (previous is { } p && p.Session == sample.Session && sample.Time - p.Time <= TimeSpan.FromSeconds(15))
+            if (previous is { } p && p.Session == sample.Session && sample.Time - p.Time <= TimeSpan.FromSeconds(75))
                 dc.DrawLine(new Pen(accent, 2), Point(p), Point(sample));
             else if (previous is { } boundary && boundary.Session != sample.Session)
             {

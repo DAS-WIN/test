@@ -55,6 +55,7 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
     public bool IsRunning => process.IsRunning;
     public bool IsTransitioning { get; private set; }
     public Guid Session { get; private set; } = Guid.NewGuid();
+    public long AutomaticRestarts { get; private set; }
     public event Action<string>? Event;
 
     public Task StartAsync(MinerSettings settings, CancellationToken ct = default) => Serialize(async () =>
@@ -110,6 +111,7 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
             Event?.Invoke("自動重啟：等待時間到，正在重新啟動礦工。");
             await StartCore(_active ?? throw new InvalidOperationException("沒有已啟動的設定。"), ct);
             Scheduler.ConfirmStarted(true);
+            AutomaticRestarts++;
         }
     }, ct);
 

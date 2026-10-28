@@ -5,9 +5,8 @@ $projectRoot = Split-Path $PSScriptRoot -Parent
 $exe = Join-Path (Join-Path $projectRoot $Portable) 'SRBMiner Monitor.exe'
 $outRoot = Join-Path $projectRoot $Output
 New-Item $outRoot -ItemType Directory -Force | Out-Null
-foreach ($mode in @('normal', 'demo')) {
+foreach ($mode in @('normal')) {
     $launchArgs = @('--verify-startup', '--no-error-dialog')
-    if ($mode -eq 'demo') { $launchArgs += '--demo' }
     $app = Start-Process -FilePath $exe -ArgumentList $launchArgs -PassThru
     try {
         if (-not $app.WaitForExit(20000)) { throw "Published $mode startup did not complete within 20 seconds." }

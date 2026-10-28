@@ -27,11 +27,11 @@ public sealed class MinerOutputTests
         Assert.Equal(5, output.Total.Accepted);
         output.Reset(); Assert.Null(output.Total.Accepted);
     }
-    [Fact] public void ApiCumulativeCountersWinWithoutDoubleCounting()
+    [Fact] public void CumulativeCountersMergeWithoutDoubleCounting()
     {
         var output = new ShareStats(4, 1, HardwareErrors: 0);
         var api = new ShareStats(4, 1);
-        var combined = MinerOutput.Prefer(api, output);
+        var combined = MinerOutput.Max(api, output);
         Assert.Equal(4, combined.Accepted); Assert.Equal(80, combined.Acceptance);
         Assert.Equal(0, combined.HardwareErrors); Assert.Null(combined.Stale);
     }
@@ -41,7 +41,7 @@ public sealed class MinerOutputTests
         output.Read("[21:45:55] Job received, share acceptance ratio unknown");
         Assert.Null(output.Total.Accepted);
         output.Read("GPU0[t0] share accepted [ 213ms ][pearlhash][0]");
-        Assert.Equal(1, MinerOutput.Prefer(new(), output.Total).Accepted);
+        Assert.Equal(1, MinerOutput.Max(new(), output.Total).Accepted);
     }
     [Theory]
     [InlineData("SRBMiner-MULTI.exe --pool prl.kryptex.network:8048", "prl.kryptex.network:8048")]

@@ -54,3 +54,9 @@ Windows 整合測試的 FakeMiner 僅提供固定格式的測試 API 與文字�
 使用者截圖提供的真實 3.8.0 輸出格式為 `GPU0[t0] share accepted [ 213ms ][pearlhash][0]`，統計表欄位末端為 A R HW。程式只消費新啟動之受管理程序的 stdout/stderr，不回讀舊日誌。ANSI 顏色碼會移除，逐行成功／拒絕訊息按 GPU 計數，統計表使用累積計數覆蓋；API 相同欄位優先，兩來源不相加。沒有逐卡 API 時，單卡可使用總計，多卡使用明確 GPU ID 的輸出。Stale／Timeout 不從 API 請求或一般錯誤推算。
 
 礦池卡的 BAT 位址僅解析實際 SRBMiner --pool 參數，不從 echo 錢包或任意文字猜測，也不執行變數展開；未取得時顯示等待位址。畫面標示這是 BAT 設定，不宣稱實測礦池已連線。
+
+## 0.1.4 的資料節奏
+
+產品僅使用 BAT；既有表單／演算法偵測與示範資料已移除。API 每秒核對分享及運行資訊；NVIDIA 感測器快取 5 秒。MinuteMetrics 在同一分鐘維持算力，在分鐘切換或 session 更換時接受新樣本，趨勢只加入該樣本。首次樣本即顯示，空白 API 會顯示等待初始化。
+
+本次程序的新輸出逐行辨識 share accepted／rejected／failed／timeout／timed out。事件列表只收這些分享結果，技術與生命週期訊息不混入事件。API 為分享計數建立累積基準，後續新分享在此基準上增加；API 與統計表用相同 session 的累積最大觀測值校正，避免較舊回應造成倒退或重複加總。

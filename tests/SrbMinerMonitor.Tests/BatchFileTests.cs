@@ -10,7 +10,7 @@ public sealed class BatchFileTests
 
     [Fact] public void BatchModeDoesNotRequireFormWalletAlgorithmOrGpu()
     {
-        var settings = new MinerSettings { UseBatchFile = true, BatchFile = "mining.BAT" };
+        var settings = new MinerSettings { BatchFile = "mining.BAT" };
         Assert.Null(settings.Validate(false));
         Assert.NotNull((settings with { BatchFile = "miner.exe" }).Validate(false));
         Assert.NotNull((settings with { ApiPort = 0 }).Validate(false));
@@ -53,16 +53,5 @@ public sealed class BatchFileTests
             .Concat(Encoding.ASCII.GetBytes("SRBMiner-MULTI.exe --algorithm x\r\n")).ToArray();
         var copy = BatchFileInspector.CreateMonitoringCopy(bytes, 21550);
         Assert.Equal(bytes[..12], copy[..12]);
-    }
-    [Fact] public void FormModeRejectsAlgorithmOutsideDetectedList()
-    {
-        var settings = new MinerSettings { Executable = "miner.exe", Algorithm = "invented", Algorithms = ["pearlhash"], AlgorithmSource = "miner.exe" };
-        Assert.Contains("清單", settings.Validate(false));
-    }
-    [Fact] public void ProbeResultsDistinguishEmptyFailureAndTimeout()
-    {
-        Assert.Throws<FormatException>(() => new ProbeResult("", "", 0, false, TimeSpan.Zero).EnsureSuccess());
-        Assert.Throws<InvalidOperationException>(() => new ProbeResult("", "driver unavailable", 7, false, TimeSpan.Zero).EnsureSuccess());
-        Assert.Throws<TimeoutException>(() => new ProbeResult("partial output", "", null, true, TimeSpan.FromSeconds(10)).EnsureSuccess());
     }
 }

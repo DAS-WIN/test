@@ -5,16 +5,6 @@ using System.Text.Json;
 using System.Runtime.InteropServices;
 
 // Test transport/probe fixture only. This program performs no hashing and connects to no pool.
-var probeMode = Environment.GetEnvironmentVariable("SRBM_FAKE_PROBE_MODE");
-if (args.Contains("--list-algorithms") || args.Contains("--list-devices"))
-{
-    if (probeMode == "empty") return 0;
-    if (probeMode == "fail") { Console.Error.WriteLine("fixture: driver unavailable"); return 7; }
-    if (probeMode == "slow") { Console.WriteLine("fixture: partial output before timeout"); await Task.Delay(TimeSpan.FromSeconds(30)); return 0; }
-    if (args.Contains("--list-algorithms")) Console.WriteLine("Supported algorithms:\n0: pearlhash  0.85%\n1: kawpow  1.00%\n2: pearlhash  0.85%");
-    else Console.WriteLine("GPU0: [BUS_ID 1] NVIDIA Integration Fixture\nGPU2: AMD Integration Fixture");
-    return 0;
-}
 if (!args.Contains("--api-enable")) { Console.Error.WriteLine("Integration fixture requires --api-enable; no mining is performed."); return 2; }
 var index = Array.IndexOf(args, "--api-port");
 var port = index >= 0 && index + 1 < args.Length ? int.Parse(args[index + 1]) : 21550;
@@ -24,6 +14,7 @@ using var listener = new TcpListener(IPAddress.Loopback, port);
 listener.Start();
 Console.WriteLine("Integration fixture API ready. No mining is performed.");
 var started = DateTimeOffset.UtcNow;
+var accepted = 4;
 Console.WriteLine($"FIXTURE_OUTPUT_REDIRECTED={Console.IsOutputRedirected}");
 Console.WriteLine($"FIXTURE_CONSOLE_VISIBLE={Native.IsWindowVisible(Native.GetConsoleWindow())}");
 Console.WriteLine($"FIXTURE_MINER_PID={Environment.ProcessId}");
@@ -31,6 +22,25 @@ for (var i = 0; i < 4; i++) Console.WriteLine("\u001b[32mGPU0[t0] share accepted
 Console.Error.WriteLine("GPU0[t0] share rejected [ 10ms ][pearlhash][0]");
 Console.WriteLine("ID Name Hashrate Power Eff Fan Temp CClk MClk A R HW");
 Console.WriteLine("#0 Integration Fixture GPU 1.234 MH/s 100W 0.012 50% 60C 2000 9000 4 1 0");
+var outputTask = Task.Run(async () =>
+{
+    try
+    {
+        while (!lifetime.IsCancellationRequested)
+        {
+            await Task.Delay(100, lifetime.Token);
+            foreach (var kind in new[] { "accepted", "rejected", "timeout" })
+            {
+                var trigger = Path.Combine(Environment.CurrentDirectory, "fixture-" + kind);
+                if (!File.Exists(trigger)) continue;
+                File.Delete(trigger);
+                if (kind == "accepted") Interlocked.Increment(ref accepted);
+                Console.WriteLine("GPU0[t0] share " + kind + " [ 213ms ][pearlhash][0]");
+            }
+        }
+    }
+    catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+});
 try
 {
     while (!lifetime.IsCancellationRequested)
@@ -44,7 +54,7 @@ try
         {
             miner_version = "integration-fixture", mining_time = (DateTimeOffset.UtcNow - started).TotalSeconds,
             gpu_devices = new[] { new { device_id = 0, bus_id = 1, name = "Integration Fixture GPU" } },
-            algorithms = new[] { new { name = "pearlhash", hashrate = new { now = 1234000, gpu = new { gpu0 = 1234000 } }, shares = new { accepted = args.Contains("--fixture-no-share-api") ? (int?)null : 4, rejected = args.Contains("--fixture-no-share-api") ? (int?)null : 1 } } }
+            algorithms = new[] { new { name = "pearlhash", hashrate = new { now = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 1000, gpu = new { gpu0 = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 1000 } }, shares = new { accepted = args.Contains("--fixture-no-share-api") ? (int?)null : Volatile.Read(ref accepted), rejected = args.Contains("--fixture-no-share-api") ? (int?)null : 1 } } }
         });
         var bytes = Encoding.UTF8.GetBytes(json);
         await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bytes.Length}\r\nConnection: close\r\n\r\n"), lifetime.Token);

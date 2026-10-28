@@ -10,7 +10,7 @@ try {
     $source = "artifacts/SRBMinerMonitor-$version-source.zip"
     $validation = "artifacts/SRBMinerMonitor-$version-Windows-validation.zip"
     if (-not (Test-Path $portable)) { throw 'Portable package is missing.' }
-    foreach ($mode in @('normal', 'demo')) {
+    foreach ($mode in @('normal')) {
         $log = "artifacts/screenshots/published-$mode-startup.log"
         if (-not (Test-Path $log) -or -not (Select-String -Path $log -SimpleMatch 'STARTUP VERIFICATION PASSED')) {
             throw "Cannot publish: $mode startup verification did not pass."

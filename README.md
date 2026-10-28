@@ -1,83 +1,60 @@
-# SRBMiner Monitor
+# SRBMiner Monitor 0.1.4
 
-繁體中文 Windows 桌面監控程式，採用 C#、.NET 10、WPF 與 MVVM。依「設計 SRBMiner-Multi GUI」最後方案製作深灰／青藍介面，支援單機、多張 GPU、單一演算法。
+繁體中文 Windows 桌面監控程式，使用自己的 SRBMiner BAT 啟動礦工。深灰／青藍介面包含總覽、挖礦設定與事件紀錄；本版已移除示範模式，以及演算法、錢包、GPU 等表單啟動方式。
 
-## 0.1.3：Accepted、背景礦工與定時重啟
+## 使用現有 BAT
 
-- 總覽常駐顯示「成功分享 Accepted（全部 GPU）」，單卡選取後也能查看成功數與接受率。
-- 讀取新礦工輸出中的綠色 `GPU0[t0] share accepted`，並解析每卡統計表的 A／R／HW 累積值。API 值優先，同一分享不從兩個來源重複加總；重新啟動礦工後建立新階段。
-- 指定 BAT 在背景執行，不開獨立 CMD 視窗。總覽提供成功分享紀錄及可選取／複製的「礦工即時輸出」，最近保留 500 行。
-- 總覽只保留礦池位址，移除 Worker、連線狀態、延遲與最近分享時間；BAT 的礦池位址來自實際礦工指令，標示設定來源。
-- 「重啟礦工」與「自動重啟礦工」只控制受管理的礦工程序，監控程式與視窗持續開啟。排程顯示停止／等待／啟動階段，並寫入事件。
+1. 完整解壓縮 Windows x64 套件，執行 `SRBMiner Monitor.exe`；啟動 GUI 不會自行挖礦。
+2. 挖礦設定選「選擇現有 BAT」，選擇 `.bat` 或 `.cmd`。
+3. 如果未啟用 API，點「建立監控副本」，存於原 BAT 相同資料夾；原檔保留，只補 API 參數。
+4. 按「儲存並啟動 BAT」。礦工在背景執行，不顯示獨立 CMD 視窗。
 
-## 0.1.2：指定 BAT 與實際監控
+## 貼上自己的 BAT
 
-背景與區塊標題已修正為深色／淺字，演算法下拉選單只能選取已讀取項目。讀取演算法與偵測顯卡會顯示進度、數量、退出碼、耗時、原始輸出與錯誤；示範模式仍可執行這些唯讀查詢。
+1. 挖礦設定選「貼上 BAT 內容」。
+2. 選擇礦工資料夾，貼上完整 BAT；例如使用 `%~dp0SRBMiner-MULTI.exe` 的批次檔，資料夾應包含該執行檔。
+3. 按「儲存並啟動 BAT」。程式自動補上 `--api-enable --api-port`，其他挖礦參數保留。
 
-要使用已建立的 BAT 實際運行：
+貼上模式會在指定資料夾建立唯一名稱的暫存 BAT，因此 `%~dp0`、`cd /d` 與 `logs` 等相對路徑保有原意；停止後移除暫存 BAT。內容以 Windows 使用者 DPAPI 加密存入設定，不能直接搬至另一個 Windows 帳號解密。原有 BAT 檔案不會被貼上內容覆寫。
 
-1. 執行 `Start-Real.cmd` 或 `SRBMiner Monitor.exe`；若目前為示範模式，點頂部「切換至實際監控」。
-2. 進入挖礦設定，勾選「指定 BAT」，選擇自己的 `.bat` 或 `.cmd`。
-3. 若 BAT 未啟用 API，點「建立監控副本」，將 `.monitor.bat` 存在原 BAT 同一資料夾。這只補 `--api-enable --api-port 21550`，原檔與其他挖礦參數保留。
-4. 確認 API 連接埠一致，點「儲存並啟動 BAT」。BAT 在背景啟動後，總覽會讀取本機 API；沒有連上時會顯示具體錯誤，不會填入模擬數據。
+GUI 不包含礦工，請自行安裝 [官方 SRBMiner-Multi](https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.8.0)。僅支援單一演算法，不調整超頻或風扇設定。
 
-指定 BAT 時，演算法、礦池、錢包與 GPU 使用 BAT 原有設定，不需要再填表單。Windows Job 會管理 BAT 與其子程序，包含 `start` 啟動後父 cmd 先退出的情況。只控制 GUI 自己啟動的程序；已在外部運行的礦工仍僅供監控。
+## 更新頻率與總覽
 
-## 0.1.1 啟動修正
+- 第一筆算力立即顯示，此後在電腦時鐘每分鐘切換時更新總算力、每卡算力與趨勢；新礦工階段也立即更新首筆。
+- Accepted 接收到分享訊息就更新，另每秒向本機 API 核對分享累積值；與算力刷新互相獨立。API 請求完整逾時 3 秒，不重疊。
+- 功耗、風扇、溫度與時脈由 `nvidia-smi` 每 5 秒補充，依 PCI bus 對應。缺少資料顯示 —，不假造零。
+- 最近成功分享位於總算力上方；綠底的成功分享統計條已刪除。Accepted 數仍顯示於顯卡下方的分享統計。
+- 礦池只顯示位址與來源。可展開「礦工即時輸出」查看最近 500 行原始輸出。
+- 算力／功耗／溫度趨勢可選 15 分鐘、1 小時、6 小時。斷線不補值，重啟有分界。
 
-修正 0.1.0 在顯示視窗時退出的問題：WPF `Run.Text` 預設雙向綁定，但最後更新與運行時間為唯讀屬性，現已明確改為單向綁定。另修正繁中運行時間格式，加入啟動錯誤提示與診斷紀錄。
+API 與輸出的累積計數採用同一階段較新的觀測值，不將兩份計數相加。重啟後重新計數。單卡可使用 API 總計，多卡從明確 GPU ID 的輸出取得每卡統計。
 
-若先前程序仍留在工作管理員，先結束舊版 SRBMiner Monitor，再將新版完整解壓縮到新資料夾執行，勿只替換 EXE。
+## 事件紀錄
 
-若仍無法啟動，執行 `Start-Diagnostics.cmd`，查看 `%LOCALAPPDATA%\SRBMiner Monitor\Logs\startup-*.log`。錯誤視窗也會顯示實際紀錄路徑；無法寫入該目錄時會改用 `%TEMP%\SRBMiner Monitor\Logs`。若尚未進入 .NET 程式，診斷啟動器會將 runtime host 訊息保存到 `%TEMP%\SRBMiner-Monitor-host.log`。
+只保留分享成功 Accepted、失敗 Rejected／failed、逾時 Timeout。算力表、分隔線、Job received、連線、啟停與排程訊息不加入事件列表或事件匯出。API 請求逾時不當成分享逾時。
 
-## 快速開始
+事件保留最近 2000 筆，顯示及匯出目前篩選的最近 500 筆。啟動與排程狀態仍在總覽及通知文字顯示；技術錯誤寫入啟動診斷紀錄。
 
-1. 在 Windows 10/11 x64 解壓縮可攜式套件，保留資料夾內所有檔案。
-2. 執行 `SRBMiner Monitor.exe`。第一次啟動不會自動挖礦。
-3. 要先看畫面，點左下角「開啟示範模式」，或執行 `Start-Demo.cmd`。所有模擬資料都有標示，不啟動真正的礦工。
-4. 回到本機監控，進入「挖礦設定」，選擇自己安裝的官方 `SRBMiner-MULTI.exe`。
-5. 點「讀取支援演算法」，選擇演算法；設定礦池主機、連接埠、錢包及 Worker。
-6. 點「偵測顯卡」並勾選 GPU。若清單格式不相容，可根據 `--list-devices` 結果手動填入 ID，例如 `0,1`。
-7. 儲存設定後回總覽點「開始」，或直接使用「儲存並啟動／重啟」。
+## 重啟與退出
 
-GUI 不包含 SRBMiner。請從 [官方發佈頁](https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.8.0) 另外安裝。預設 API 為 `127.0.0.1:21550`，只控制 GUI 自己啟動的礦工。外部執行的礦工可監控，但不接管啟停。
+「重啟礦工」只重啟 BAT 及其受管理子程序，GUI 保持開啟。自動重啟為：運行指定時間 → 完全停止礦工 → 等待指定分鐘 → 重新啟動，可循環或只執行一次。手動停止取消排程；停止／啟動失敗或非預期退出會暫停排程。
 
-## 功能
+只控制本程式啟動的礦工；外部礦工僅監控。Windows Job 追蹤 BAT 與 `start /b` 等子程序，先嘗試正常停止，10 秒後才終止受管理程序樹。關閉視窗縮至系統匣；選「停止並退出」才結束。
 
-- 總算力、GPU 功耗、效率、最高溫度、每張 GPU 的感測資訊與時脈。
-- 每 5 秒更新；API 完整請求逾時 3 秒，不重疊請求。更新失敗保留最後讀值，超過 15 秒標示過期。
-- 分享計數優先使用 API 累積值，輸出補足缺少的欄位，不在輪詢時重複加總。缺少的 Stale／Timeout／HW errors 顯示「—」。
-- 功耗、風扇、溫度與核心／顯存頻率由本機 `nvidia-smi` 補充，依 PCI bus 對應；不確定時保持未知。
-- 選取 GPU 切換分享與趨勢，按「全部 GPU」回到彙總。API 沒有每卡分享時，單卡使用總計，多卡從本次礦工輸出補充；仍無來源時顯示「—」。
-- 算力／功耗／溫度趨勢，最近 15 分鐘／1 小時／6 小時；平均值顯示實際樣本跨度，斷線不補值、重啟有分界。
-- 演算法讀取、去重、本機快取、10 秒逾時與失敗保留原清單。
-- 自動重啟：運行指定時間 → 確認完全停止 → 等待 X 分鐘 → 啟動，可循環或只執行一次。
-- 事件篩選／匯出、密碼遮蔽、Windows DPAPI 密碼儲存、系統匣。
+設定在 `%LOCALAPPDATA%\SRBMiner Monitor\settings.json`；舊版 BAT 路徑與排程設定保留，舊表單欄位忽略。GUI 重新開啟不會自行啟動礦工或啟用排程。
 
-## 自動重啟與退出
+## 建置與診斷
 
-先啟動 GUI 管理的礦工，再點「自動重啟」設定並套用。第一次倒數從套用開始，後續從新程序成功啟動後開始。手動停止會取消後續啟動；關閉排程讓礦工繼續運行。啟停失敗或非預期退出會暫停排程。
-
-重新開啟 GUI 只還原排程設定，不自行挖礦或啟用排程。此功能只重新啟動礦工，監控應用程式與 Windows 保持運行。關閉視窗會縮至系統匣；請選「停止並退出」才真正結束。正常停止超過 10 秒才會終止受管理程序。
-
-## 設定與資料
-
-設定存於 `%LOCALAPPDATA%\SRBMiner Monitor\settings.json`。密碼由目前 Windows 使用者的 DPAPI 保護，不能直接移至其他帳號解密；其他設定與錢包是本機明文。事件保留最近 2000 筆於記憶體，畫面及匯出為目前篩選的最近 500 筆。
-
-「儲存設定」允許未填妥的草稿，不影響運行中的礦工與監控連接埠。「取消變更」還原最後儲存版本。啟動必須有有效執行檔、演算法、GPU、礦池及錢包。礦池測試只驗證 TCP／TLS。
-
-## 建置
-
-需 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)。
+需 .NET 10 SDK；Windows x64 發布包含 runtime，不需另裝 SDK。
 
 ```powershell
 dotnet build SrbMinerMonitor.slnx -c Release
 dotnet test tests/SrbMinerMonitor.Tests -c Release
-dotnet run --project src/SrbMinerMonitor.App -- --demo
+pwsh ./scripts/Smoke-Windows.ps1
 pwsh ./scripts/Publish-Windows.ps1
 ```
 
-發布腳本產生自帶 .NET runtime 的 Windows x64 資料夾與 ZIP，目標電腦不需安裝 SDK。Linux 可跑核心測試與交叉建置，無法執行 WPF。
+若無法啟動，執行 `Start-Diagnostics.cmd`，查看 `%LOCALAPPDATA%\SRBMiner Monitor\Logs\startup-*.log`，無法寫入時改用 `%TEMP%`。升級時先停止舊版並完整解壓新版到新資料夾，不要只替換 EXE。
 
-詳見 [實作說明](docs/IMPLEMENTATION.md)、[資料來源](docs/DATA-SOURCES.md) 與 [Windows 驗收](docs/WINDOWS-VALIDATION.md)。
+Windows 整合測試使用不挖礦、不連礦池的測試程序。真實 Windows 11／RTX 5080 的接受結果需實機試跑。詳見 [版本變更](docs/RELEASE-NOTES-0.1.4.md)、[資料來源](docs/DATA-SOURCES.md) 與 [驗證說明](docs/VERIFICATION.md)。

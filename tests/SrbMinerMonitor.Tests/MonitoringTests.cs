@@ -79,22 +79,4 @@ public sealed class MonitoringTests
         var average = history.Average(now, TimeSpan.FromMinutes(1));
         Assert.Equal(300, average.Value); Assert.Equal(TimeSpan.Zero, average.Coverage);
     }
-    [Fact] public void AlgorithmOutputIsDeduplicatedAndHeadersSkipped()
-    {
-        const string output = "SRBMiner-MULTI\nSupported algorithms:\nAlgorithm  DevFee\n0: pearlhash  0.85%\n1: kawpow  0.85%\n2: pearlhash  0.85%\n\u001b[32mautolykos2\u001b[0m\n";
-        Assert.Equal(["autolykos2", "kawpow", "pearlhash"], ExecutableProbe.ParseAlgorithms(output));
-    }
-    [Fact] public void UnrecognizedAlgorithmOutputFailsInsteadOfReplacingCache() =>
-        Assert.Throws<FormatException>(() => ExecutableProbe.ParseAlgorithms("Unable to initialize GPU device.\n"));
-    [Fact] public void DeviceOutputRetainsMinerGpuIds() =>
-        Assert.Equal([0, 2], ExecutableProbe.ParseDevices("GPU0: NVIDIA RTX 5080\nGPU2: AMD Radeon RX 7900\n").Select(d => d.Id));
-    [Fact] public void ArgumentsKeepValuesInSeparateElements()
-    {
-        var settings = new MinerSettings { Executable = "miner.exe", Algorithm = "pearlhash", Algorithms = ["pearlhash"], AlgorithmSource = "miner.exe", GpuIds = [2, 0], PoolHost = "pool.example.com", Wallet = "wallet with spaces", Worker = "$(never-run)" };
-        Assert.Null(settings.Validate(false));
-        var args = settings.Arguments().ToArray();
-        Assert.Equal("wallet with spaces", args[Array.IndexOf(args, "--wallet") + 1]);
-        Assert.Equal("0,2", args[Array.IndexOf(args, "--gpu-id") + 1]);
-        Assert.DoesNotContain("--api-rig-restart-url", args);
-    }
 }

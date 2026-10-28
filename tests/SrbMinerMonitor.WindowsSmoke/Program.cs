@@ -34,16 +34,15 @@ internal static class Program
         var app = new SrbMinerMonitor.App.App();
         app.InitializeComponent();
         // Initialize resources without invoking App.OnStartup, which would open a second window.
-        var window = new MainWindow(true, new SettingsStore(Path.Combine(output, "isolated-settings")));
+        var window = new MainWindow( new SettingsStore(Path.Combine(output, "isolated-settings")));
         var vm = (MainViewModel)window.DataContext;
         var result = 0;
         window.Loaded += async (_, _) =>
         {
             try
             {
-                var readyBy = DateTimeOffset.Now.AddSeconds(10);
-                while ((!vm.IsDemo || vm.Gpus.Count == 0) && DateTimeOffset.Now < readyBy) await Task.Delay(50);
-                if (!vm.IsDemo || vm.Gpus.Count != 1 || vm.Hashrate == "—") throw new InvalidOperationException("Demo initialization failed.");
+                if (vm.Gpus.Count != 0 || vm.Hashrate != "—") throw new InvalidOperationException("Startup must be empty; no demonstration data or automatic mining.");
+                if (Descendants<Button>(window).Any(b => b.Content?.ToString()?.Contains("示範") == true)) throw new InvalidOperationException("Demo UI remains.");
                 if (window.Background is not SolidColorBrush rootBrush || rootBrush.Color != Color.FromRgb(16, 23, 32)) throw new InvalidOperationException("Window must explicitly use the dark background.");
                 if (window.FontSize != 13) throw new InvalidOperationException("MainWindow must explicitly apply its base Window style.");
                 await Render("overview");
@@ -52,19 +51,21 @@ internal static class Program
                     throw new InvalidOperationException("Read-only LastUpdate and Uptime Run.Text bindings must explicitly use OneWay.");
                 vm.ScheduleCommand.Execute(null); await Render("schedule"); vm.CancelScheduleCommand.Execute(null);
                 vm.SettingsCommand.Execute(null); await Render("settings");
-                var selector = Descendants<ComboBox>(window).Single(c => c.Name == "AlgorithmSelector");
-                if (selector.IsEditable) throw new InvalidOperationException("Algorithm selector must not accept free text.");
+                if (Descendants<ComboBox>(window).Any(c => c.Name == "AlgorithmSelector")) throw new InvalidOperationException("Non-BAT settings remain.");
+                var heading = Descendants<TextBlock>(window).Single(t => t.Name == "RecentSharesHeading");
+                var cards = Descendants<System.Windows.Controls.Primitives.UniformGrid>(window).Single(g => g.Name == "SummaryCards");
+                if (heading.TranslatePoint(new Point(), window).Y >= cards.TranslatePoint(new Point(), window).Y) throw new InvalidOperationException("Recent accepted must be above total hashrate.");
+                if (Descendants<TextBlock>(window).Any(t => t.Text.Contains("成功分享 Accepted（全部 GPU）"))) throw new InvalidOperationException("Green accepted banner remains.");
                 foreach (var title in Descendants<TextBlock>(window).Where(t => t.Style == (Style)window.FindResource("SectionTitle")))
                     if (title.Foreground is not SolidColorBrush brush || brush.Color != Color.FromRgb(231, 239, 246)) throw new InvalidOperationException("Section titles must inherit the light foreground.");
                 if (args.Length > 1)
                 {
-                    await VerifyProbeFeedback(vm, args[1]); await Render("probe-results");
                     await VerifyBatchLifecycle(vm, args[1], output, Render);
                 }
                 vm.EventsCommand.Execute(null); await Render("events");
                 window.Width = 1100; window.Height = 720; vm.OverviewCommand.Execute(null); await Render("overview-small");
                 if (errors.Messages.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, errors.Messages));
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: explicit dark background and light titles; read-only algorithm selection; probe success/empty/failure/timeout with visible output; user-shaped BAT monitoring copy; BAT launch, real loopback HTTP polling, stop, restart and detached child ownership using a non-mining fixture; Run.Text OneWay; three pages, schedule, 1440x900/1100x720 rendered; no binding errors.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: dark theme; no demo or non-BAT launch; accepted above hashrate and no banner; event log contains only success/failure/timeout; minute hashrate independent of live shares; existing and pasted BAT; protected settings; BAT launch, real loopback HTTP polling, stop, restart and detached child ownership using a non-mining fixture; Run.Text OneWay; three pages, schedule, 1440x900/1100x720 rendered; no binding errors.");
             }
             catch (Exception e)
             {
@@ -105,32 +106,6 @@ internal static class Program
         while ((vm.IsBusy || command is AsyncCommand { IsExecuting: true }) && DateTimeOffset.Now < until) await Task.Delay(50);
         if (vm.IsBusy || command is AsyncCommand { IsExecuting: true }) throw new TimeoutException("UI command did not complete.");
     }
-    private static async Task VerifyProbeFeedback(MainViewModel vm, string executable)
-    {
-        vm.Settings.Executable = executable;
-        await Execute(vm, vm.ReadAlgorithmsCommand);
-        if (vm.Settings.Algorithms.Count != 2 || !vm.ProbeStatus.StartsWith("完成") || !vm.ProbeDetails.Contains("退出碼：0")) throw new InvalidOperationException("Algorithm success feedback failed.");
-        await Execute(vm, vm.DetectDevicesCommand);
-        if (vm.Settings.Devices.Count != 2 || !vm.ProbeStatus.Contains("2 張 GPU")) throw new InvalidOperationException("Device detection feedback failed.");
-        try
-        {
-            foreach (var mode in new[] { "empty", "fail", "slow" })
-            {
-                Environment.SetEnvironmentVariable("SRBM_FAKE_PROBE_MODE", mode);
-                if (!vm.ReadAlgorithmsCommand.CanExecute(null)) throw new InvalidOperationException("Read-only probes must remain available in demo mode.");
-                vm.ReadAlgorithmsCommand.Execute(null);
-                if (mode == "slow" && (!vm.ReadingAlgorithms || !vm.ProbeStatus.Contains("執行中"))) throw new InvalidOperationException("No progress shown while the probe is running.");
-                var until = DateTimeOffset.Now.AddSeconds(15);
-                while ((vm.IsBusy || vm.ReadAlgorithmsCommand is AsyncCommand { IsExecuting: true }) && DateTimeOffset.Now < until) await Task.Delay(50);
-                if (vm.IsBusy || vm.Settings.Algorithms.Count != 2 || !vm.ProbeStatus.StartsWith("失敗")) throw new InvalidOperationException("Probe failure did not preserve cache or show feedback: " + mode);
-                if (mode == "empty" && !vm.ProbeDetails.Contains("未輸出任何資料")) throw new InvalidOperationException("Empty output is ambiguous.");
-                if (mode == "fail" && !vm.ProbeDetails.Contains("driver unavailable")) throw new InvalidOperationException("stderr was not shown.");
-                if (mode == "slow" && !vm.ProbeDetails.Contains("partial output")) throw new InvalidOperationException("Timeout discarded partial output.");
-            }
-        }
-        finally { Environment.SetEnvironmentVariable("SRBM_FAKE_PROBE_MODE", null); }
-        await Execute(vm, vm.ReadAlgorithmsCommand);
-    }
     private static async Task VerifyBatchLifecycle(MainViewModel vm, string executable, string output, Func<string, Task> render)
     {
         var directory = Path.Combine(Path.GetTempPath(), "SRBM-BAT-" + Guid.NewGuid().ToString("N"), "BAT 測試 & %SRBM_UNEXPANDED% !");
@@ -144,9 +119,7 @@ internal static class Program
         await File.WriteAllTextAsync(original, userShape, Encoding.ASCII);
         await File.WriteAllBytesAsync(monitoring, BatchFileInspector.CreateMonitoringCopy(await File.ReadAllBytesAsync(original), port));
         if (await File.ReadAllTextAsync(original) != userShape) throw new InvalidOperationException("Original BAT changed.");
-        await Execute(vm, vm.SwitchLiveCommand);
-        if (vm.IsDemo) throw new InvalidOperationException("Switch to real monitoring failed.");
-        vm.Settings.UseBatchFile = true; vm.Settings.BatchFile = Path.GetFullPath(monitoring); vm.Settings.ApiPort = port.ToString();
+        vm.Settings.BatchInputMode = vm.Settings.BatchModes[0]; vm.Settings.BatchFile = Path.GetFullPath(monitoring); vm.Settings.ApiPort = port.ToString();
         try
         {
             await Execute(vm, vm.SaveRestartCommand);
@@ -160,9 +133,33 @@ internal static class Program
             if (vm.RecentShares.Count() != 3 || vm.RecentShares.Any(e => !e.Message.Contains("share accepted"))) throw new InvalidOperationException("Green accepted events missing from application.");
             await render("accepted-background-miner");
             Console.WriteLine("PASS: user-shaped BAT -> hidden console -> captured output -> accepted=4, selected GPU=4, rejected=1, acceptance=80%, configured pool.");
-            await Execute(vm, vm.StopCommand);
-            await AssertPortClosed(port);
-            Console.WriteLine("PASS: managed BAT stop closed its API port.");
+            var beforeShare = vm.TotalAccepted; var beforeHash = vm.Hashrate; var beforeHistory = vm.History.Samples.Count;
+            var beforeMinute = DateTimeOffset.UtcNow.UtcTicks / TimeSpan.TicksPerMinute;
+            await File.WriteAllTextAsync(Path.Combine(directory, "fixture-accepted"), "go");
+            var realtimeDeadline = DateTimeOffset.Now.AddSeconds(2);
+            while (vm.TotalAccepted == beforeShare && DateTimeOffset.Now < realtimeDeadline) await Task.Delay(20);
+            if (vm.TotalAccepted != "5") throw new InvalidOperationException("Accepted did not update in real time independently of API: " + vm.TotalAccepted);
+            if (DateTimeOffset.UtcNow.UtcTicks / TimeSpan.TicksPerMinute == beforeMinute && (vm.Hashrate != beforeHash || vm.History.Samples.Count != beforeHistory)) throw new InvalidOperationException("Share update changed hashrate inside a minute.");
+            await File.WriteAllTextAsync(Path.Combine(directory, "fixture-timeout"), "go");
+            var timeoutDeadline = DateTimeOffset.Now.AddSeconds(2);
+            while (!vm.Events.Any(e => e.Category == "逾時") && DateTimeOffset.Now < timeoutDeadline) await Task.Delay(20);
+            if (!vm.Events.Any(e => e.Category == "成功") || !vm.Events.Any(e => e.Category == "失敗") || !vm.Events.Any(e => e.Category == "逾時") || vm.Events.Any(e => e.Category is not ("成功" or "失敗" or "逾時"))) throw new InvalidOperationException("Events must contain only share outcomes.");
+            vm.EventFilter = "逾時"; if (vm.FilteredEvents.Any(e => e.Category != "逾時")) throw new InvalidOperationException("Share outcome filter failed."); vm.EventFilter = "全部";
+            Console.WriteLine("PASS: accepted updates within 2 seconds without changing minute hashrate; only success/rejected/timeout in event log.");
+            await Execute(vm, vm.StopCommand); await AssertPortClosed(port);
+            // Paste the same script; API is inserted automatically and the temporary BAT uses the miner folder.
+            vm.Settings.BatchInputMode = vm.Settings.BatchModes[1]; vm.Settings.BatchContent = userShape; vm.Settings.BatchDirectory = directory;
+            await Execute(vm, vm.SaveRestartCommand); await WaitForApi(vm);
+            if (vm.TotalAccepted != "4" || Directory.GetFiles(directory, "SRBMiner-Monitor-*.bat").Length != 1) throw new InvalidOperationException("Pasted BAT launch failed.");
+            var persisted = await File.ReadAllTextAsync(Path.Combine(output, "isolated-settings", "settings.json"));
+            if (persisted.Contains("--wallet TEST") || persisted.Contains("\"BatchContent\"")) throw new InvalidOperationException("Pasted BAT must be protected in settings.");
+            var restored = await new SettingsStore(Path.Combine(output, "isolated-settings")).LoadAsync();
+            if (restored.BatchContent != userShape || !restored.UsePastedBatch) throw new InvalidOperationException("Pasted BAT protection/restore failed.");
+            vm.SettingsCommand.Execute(null); await render("pasted-bat-settings"); vm.OverviewCommand.Execute(null);
+            await Execute(vm, vm.StopCommand); await AssertPortClosed(port);
+            if (Directory.GetFiles(directory, "SRBMiner-Monitor-*.bat").Length != 0) throw new InvalidOperationException("Generated BAT was not removed after stop.");
+            vm.Settings.BatchInputMode = vm.Settings.BatchModes[0];
+            Console.WriteLine("PASS: pasted BAT -> automatic API -> correct working folder -> protected settings -> stop deletes generated BAT.");
             // START exits its cmd parent immediately. The Job must still own the surviving child.
             var detached = Path.Combine(directory, "detached.bat");
             await File.WriteAllTextAsync(detached, $"@echo off\r\nstart \"\" /b \"%~dp0SRBMiner-MULTI.exe\" --api-enable --api-port {port}\r\nexit /b\r\n", Encoding.ASCII);
@@ -186,7 +183,6 @@ internal static class Program
         finally
         {
             if (vm.StopCommand.CanExecute(null)) await Execute(vm, vm.StopCommand);
-            vm.Settings.UseBatchFile = false;
             try { Directory.Delete(directory, true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { StartupDiagnostics.Write("Deferred temporary fixture cleanup: " + e.Message); }
         }

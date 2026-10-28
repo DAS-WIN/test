@@ -7,11 +7,11 @@ Push-Location $projectRoot
 try {
     dotnet test tests/SrbMinerMonitor.Tests -c Release
     if ($LASTEXITCODE -ne 0) { throw '核心測試未通過。' }
+    if (Test-Path $portable) { Remove-Item $portable -Recurse -Force }
     dotnet publish src/SrbMinerMonitor.App -c Release -r win-x64 --self-contained true -o $portable
     if ($LASTEXITCODE -ne 0) { throw 'Windows 發布失敗。' }
     Copy-Item README.md $portable
     Copy-Item docs $portable -Recurse -Force
-    Copy-Item scripts/Start-Demo.cmd $portable
     Copy-Item scripts/Start-Diagnostics.cmd $portable
     Copy-Item scripts/Start-Real.cmd $portable
     [xml]$project = Get-Content src/SrbMinerMonitor.App/SrbMinerMonitor.App.csproj

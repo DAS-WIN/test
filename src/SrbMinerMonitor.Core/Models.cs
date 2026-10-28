@@ -42,50 +42,29 @@ public sealed record RestartOptions(bool Enabled = false, int RunValue = 6, bool
 
 public sealed record MinerSettings
 {
-    public bool UseBatchFile { get; init; }
     public string BatchFile { get; init; } = "";
-    public string Executable { get; init; } = "";
+    public bool UsePastedBatch { get; init; }
+    [JsonIgnore] public string BatchContent { get; init; } = "";
+    public string? ProtectedBatchContent { get; init; }
+    public string BatchDirectory { get; init; } = "";
     public string RigName { get; init; } = "rig-01";
-    public string Algorithm { get; init; } = "";
-    public string PoolHost { get; init; } = "";
-    public int PoolPort { get; init; } = 3333;
-    public string Wallet { get; init; } = "";
-    public string Worker { get; init; } = "rig-01";
-    [JsonIgnore] public string Password { get; init; } = "";
-    public string? ProtectedPassword { get; init; }
-    public bool Tls { get; init; }
     public int ApiPort { get; init; } = 21550;
-    public int[] GpuIds { get; init; } = [];
-    public string[] Algorithms { get; init; } = [];
-    public string AlgorithmSource { get; init; } = "";
     public RestartOptions Restart { get; init; } = new();
 
     public string? Validate(bool checkFile = true)
     {
         if (ApiPort is < 1 or > 65535) return "API 連接埠必須介於 1 與 65535。";
-        if (UseBatchFile)
+        if (UsePastedBatch)
         {
-            if (string.IsNullOrWhiteSpace(BatchFile) || !new[] { ".bat", ".cmd" }.Contains(Path.GetExtension(BatchFile), StringComparer.OrdinalIgnoreCase) || (checkFile && !File.Exists(BatchFile)))
-                return "請選擇有效的 BAT 或 CMD 檔案。";
+            if (string.IsNullOrWhiteSpace(BatchContent)) return "請貼上自己的 BAT 內容。";
+            if (BatchContent.Length > 1024 * 1024 || BatchContent.Contains('\0')) return "BAT 內容過大或含有無效字元。";
+            if (string.IsNullOrWhiteSpace(BatchDirectory) || (checkFile && !Directory.Exists(BatchDirectory))) return "請選擇礦工所在資料夾，讓 BAT 的相對路徑正常運作。";
             return null;
         }
-        if (string.IsNullOrWhiteSpace(Executable) || (checkFile && !File.Exists(Executable))) return "請選擇有效的 SRBMiner 執行檔。";
-        if (string.IsNullOrWhiteSpace(Algorithm) || Algorithm.IndexOfAny([';', ',', ' ', '\r', '\n']) >= 0) return "請選擇單一演算法。";
-        if (!Algorithms.Contains(Algorithm, StringComparer.OrdinalIgnoreCase)) return "請先讀取支援演算法，再從清單選擇。";
-        if (!AlgorithmSource.Equals(Executable, StringComparison.OrdinalIgnoreCase)) return "執行檔已變更，請重新讀取支援演算法。";
-        if (GpuIds.Length == 0 || GpuIds.Any(id => id < 0)) return "請至少選擇一張 GPU。";
-        if (string.IsNullOrWhiteSpace(PoolHost) || Uri.CheckHostName(PoolHost) == UriHostNameType.Unknown) return "請填入礦池主機名稱或 IP（不含通訊協定與連接埠）。";
-        if (PoolPort is < 1 or > 65535 || ApiPort is < 1 or > 65535) return "連接埠必須介於 1 與 65535。";
-        if (string.IsNullOrWhiteSpace(Wallet)) return "請填入錢包地址。";
-        if (new[] { Wallet, Worker, Password }.Any(v => v.IndexOfAny([';', ',', '!', '\r', '\n']) >= 0)) return "錢包、Worker 與密碼不可包含多礦池分隔符號或換行。";
+        if (string.IsNullOrWhiteSpace(BatchFile) || !new[] { ".bat", ".cmd" }.Contains(Path.GetExtension(BatchFile), StringComparer.OrdinalIgnoreCase) || (checkFile && !File.Exists(BatchFile)))
+            return "請選擇有效的 BAT 或 CMD 檔案，或改為貼上 BAT 內容。";
         return null;
     }
-
-    public IReadOnlyList<string> Arguments() => ["--algorithm", Algorithm, "--disable-cpu", "--gpu-id",
-        string.Join(',', GpuIds.Distinct().Order()), "--pool", PoolAddress, "--wallet", Wallet,
-        "--worker", Worker, "--password", Password, "--tls", Tls ? "true" : "false",
-        "--api-enable", "--api-port", ApiPort.ToString(CultureInfo.InvariantCulture), "--api-rig-name", RigName];
-    [JsonIgnore] public string PoolAddress => $"{(PoolHost.Contains(':') ? $"[{PoolHost}]" : PoolHost)}:{PoolPort}";
 }
 
 public sealed record MonitorEvent(DateTimeOffset Time, string Category, string Message)

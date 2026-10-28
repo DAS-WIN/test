@@ -7,13 +7,14 @@ public sealed partial class MinerOutput
 {
     private readonly Dictionary<int, ShareStats> _gpus = [];
     private bool _shareTable;
+    private ShareStats _total = new();
     public string? Pool { get; private set; }
     public IReadOnlyDictionary<int, ShareStats> Gpus => _gpus;
-    public ShareStats Total => new(Sum(s => s.Accepted), Sum(s => s.Rejected), HardwareErrors: Sum(s => s.HardwareErrors));
+    public ShareStats Total => Max(_total, new(Sum(s => s.Accepted), Sum(s => s.Rejected), Timeout: Sum(s => s.Timeout), HardwareErrors: Sum(s => s.HardwareErrors)));
     private long? Sum(Func<ShareStats, long?> field) => _gpus.Count == 0 || _gpus.Values.Any(s => field(s) is null)
         ? null : _gpus.Values.Sum(s => field(s)!.Value);
     public static string Clean(string line) => Ansi().Replace(line, "").TrimEnd('\r');
-    public void Reset(string? pool = null) { _gpus.Clear(); Pool = pool; _shareTable = false; }
+    public void Reset(string? pool = null) { _gpus.Clear(); _total = new(); Pool = pool; _shareTable = false; }
     public void Read(string line)
     {
         line = Clean(line);
@@ -24,21 +25,48 @@ public sealed partial class MinerOutput
             && long.TryParse(row.Groups[2].Value, out var accepted) && long.TryParse(row.Groups[3].Value, out var rejected)
             && long.TryParse(row.Groups[4].Value, out var hardware))
         {
-            _gpus[rowId] = new(accepted, rejected, HardwareErrors: hardware);
+            _gpus[rowId] = Max(_gpus.GetValueOrDefault(rowId), new(accepted, rejected, HardwareErrors: hardware));
+            _total = Total;
             return;
         }
         var share = Share().Match(line);
         if (!share.Success || !int.TryParse(share.Groups[1].Value, out var id)) return;
-        var previous = _gpus.GetValueOrDefault(id) ?? new(0, 0);
-        _gpus[id] = share.Groups[2].Value.Equals("accepted", StringComparison.OrdinalIgnoreCase)
-            ? previous with { Accepted = (previous.Accepted ?? 0) + 1 }
-            : previous with { Rejected = (previous.Rejected ?? 0) + 1 };
+        var outcome = Outcome(line);
+        _gpus[id] = Increment(_gpus.GetValueOrDefault(id) ?? new(0, 0), outcome);
+        _total = Increment(_total, outcome);
     }
-    // API cumulative values win. Never add the same shares from two sources.
-    public static ShareStats Prefer(ShareStats? api, ShareStats? output) => new(
-        api?.Accepted ?? output?.Accepted, api?.Rejected ?? output?.Rejected,
-        api?.Stale ?? output?.Stale, api?.Timeout ?? output?.Timeout, api?.HardwareErrors ?? output?.HardwareErrors);
+    public void Reconcile(MinerSnapshot snapshot)
+    {
+        _total = Max(Total, snapshot.Shares);
+        foreach (var gpu in snapshot.Gpus)
+        {
+            var stats = gpu.Shares ?? (snapshot.Gpus.Count == 1 ? snapshot.Shares : null);
+            if (stats is not null) _gpus[gpu.Id] = Max(_gpus.GetValueOrDefault(gpu.Id), stats);
+        }
+    }
+    private static ShareStats Increment(ShareStats previous, string? outcome) => outcome switch
+    {
+        "成功" => previous with { Accepted = (previous.Accepted ?? 0) + 1 },
+        "失敗" => previous with { Rejected = (previous.Rejected ?? 0) + 1 },
+        "逾時" => previous with { Timeout = (previous.Timeout ?? 0) + 1 },
+        _ => previous
+    };
+    public static string? Outcome(string line)
+    {
+        line = Clean(line);
+        if (line.Contains("devfee", StringComparison.OrdinalIgnoreCase) || line.Contains("donation", StringComparison.OrdinalIgnoreCase)) return null;
+        var match = Result().Match(line);
+        if (!match.Success) return null;
+        return match.Groups[1].Value.ToLowerInvariant() switch { "accepted" => "成功", "rejected" or "failed" => "失敗", _ => "逾時" };
+    }
+    // Reconcile cumulative counts by taking the newer observed maximum, never adding sources.
+    public static ShareStats Max(ShareStats? first, ShareStats? second)
+    {
+        static long? M(long? a, long? b) => a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
+        return new(M(first?.Accepted, second?.Accepted), M(first?.Rejected, second?.Rejected), M(first?.Stale, second?.Stale), M(first?.Timeout, second?.Timeout), M(first?.HardwareErrors, second?.HardwareErrors));
+    }
     [GeneratedRegex(@"\x1B\[[0-?]*[ -/]*[@-~]")] private static partial Regex Ansi();
-    [GeneratedRegex(@"\bGPU\s*#?(\d+)(?:\[t\d+\])?\s+share\s+(accepted|rejected)\b", RegexOptions.IgnoreCase)] private static partial Regex Share();
+    [GeneratedRegex(@"\bGPU\s*#?(\d+)(?:\[t\d+\])?\s+share\s+(accepted|rejected|failed|timeout|timed\s+out)\b", RegexOptions.IgnoreCase)] private static partial Regex Share();
     [GeneratedRegex(@"(?:^|\]\s*)#(\d+)\s+.+?\s+(\d+)\s+(\d+)\s+(\d+)\s*$")] private static partial Regex TableRow();
+    [GeneratedRegex(@"\bshare\s+(accepted|rejected|failed|timeout|timed\s+out)\b", RegexOptions.IgnoreCase)] private static partial Regex Result();
 }
