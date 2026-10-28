@@ -84,6 +84,8 @@ public sealed record MonitorEvent(DateTimeOffset Time, string Category, string M
 
 public static class Display
 {
+    public static string Uptime(double? seconds) => seconds is double value && double.IsFinite(value) && value >= 0
+        ? TimeSpan.FromSeconds(Math.Min(value, TimeSpan.MaxValue.TotalSeconds / 2)).ToString(@"d' 天 'hh\:mm\:ss", CultureInfo.InvariantCulture) : "—";
     public static string Number(double? value, string unit = "", string format = "0.0") =>
         value is double n && double.IsFinite(n) ? $"{n.ToString(format, CultureInfo.InvariantCulture)}{(unit.Length > 0 ? " " + unit : "")}" : "—";
     public static string Hash(double? value, bool efficiency = false, double? unitReference = null)

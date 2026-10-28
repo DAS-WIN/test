@@ -7,12 +7,12 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>SRBMiner Monitor</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
+    <StartupObject>SrbMinerMonitor.App.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
     <ProjectReference Include="../SrbMinerMonitor.Core/SrbMinerMonitor.Core.csproj" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
 </Project>

@@ -4,7 +4,11 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Documents;
 using SrbMinerMonitor.App;
+using SrbMinerMonitor.App.Services;
 using SrbMinerMonitor.App.ViewModels;
 
 namespace SrbMinerMonitor.WindowsSmoke;
@@ -16,6 +20,9 @@ internal static class Program
     {
         var output = Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/screenshots");
         Directory.CreateDirectory(output);
+        StartupDiagnostics.SuppressDialogs = true;
+        StartupDiagnostics.Initialize();
+        VerifyDefaultRunBindingRejectsReadOnlySource();
         var errors = new BindingErrors();
         PresentationTraceSources.DataBindingSource.Listeners.Add(errors);
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
@@ -33,12 +40,15 @@ internal static class Program
                 while ((!vm.IsDemo || vm.Gpus.Count == 0) && DateTimeOffset.Now < readyBy) await Task.Delay(50);
                 if (!vm.IsDemo || vm.Gpus.Count != 1 || vm.Hashrate == "—") throw new InvalidOperationException("Demo initialization failed.");
                 await Render("overview");
+                var readOnlyRuns = FindReadOnlyRuns(window).ToArray();
+                if (readOnlyRuns.Length != 2 || readOnlyRuns.Any(b => b.Mode != BindingMode.OneWay))
+                    throw new InvalidOperationException("Read-only LastUpdate and Uptime Run.Text bindings must explicitly use OneWay.");
                 vm.ScheduleCommand.Execute(null); await Render("schedule"); vm.CancelScheduleCommand.Execute(null);
                 vm.SettingsCommand.Execute(null); await Render("settings");
                 vm.EventsCommand.Execute(null); await Render("events");
                 window.Width = 1100; window.Height = 720; vm.OverviewCommand.Execute(null); await Render("overview-small");
                 if (errors.Messages.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, errors.Messages));
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: WPF loaded; demo data, navigation, schedule panel, 1440x900 and 1100x720 rendered; no binding errors.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: WPF loaded; read-only Run.Text bindings are OneWay; demo data, navigation, schedule panel, 1440x900 and 1100x720 rendered; no binding errors.");
             }
             catch (Exception e)
             {
@@ -70,6 +80,29 @@ internal static class Program
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
             using var stream = File.Create(Path.Combine(output, name + ".png")); encoder.Save(stream);
         }
+    }
+    private static void VerifyDefaultRunBindingRejectsReadOnlySource()
+    {
+        // Reproduce the 0.1.0 startup failure before subscribing to binding-error traces.
+        var source = new ReadOnlyText();
+        try { new Run().SetBinding(Run.TextProperty, new Binding(nameof(ReadOnlyText.Value)) { Source = source }); }
+        catch (InvalidOperationException)
+        {
+            var corrected = new Run();
+            corrected.SetBinding(Run.TextProperty, new Binding(nameof(ReadOnlyText.Value)) { Source = source, Mode = BindingMode.OneWay });
+            if (corrected.Text != source.Value) throw new InvalidOperationException("OneWay Run binding did not render the read-only value.");
+            return;
+        }
+        throw new InvalidOperationException("Expected WPF's default TwoWay Run binding to reject a read-only property.");
+    }
+    private sealed class ReadOnlyText { public string Value => "startup regression"; }
+    private static IEnumerable<Binding> FindReadOnlyRuns(DependencyObject parent)
+    {
+        if (parent is TextBlock text)
+            foreach (var run in text.Inlines.OfType<Run>())
+                if (BindingOperations.GetBinding(run, Run.TextProperty) is Binding binding && binding.Path?.Path is "LastUpdate" or "Uptime") yield return binding;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            foreach (var binding in FindReadOnlyRuns(VisualTreeHelper.GetChild(parent, i))) yield return binding;
     }
     private sealed class BindingErrors : TraceListener
     {

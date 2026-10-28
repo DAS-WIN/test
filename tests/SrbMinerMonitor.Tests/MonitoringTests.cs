@@ -4,6 +4,13 @@ namespace SrbMinerMonitor.Tests;
 
 public sealed class MonitoringTests
 {
+    [Theory]
+    [InlineData(0, "0 天 00:00:00")]
+    [InlineData(3661, "0 天 01:01:01")]
+    [InlineData(90061, "1 天 01:01:01")]
+    [InlineData(-1, "—")]
+    [InlineData(double.NaN, "—")]
+    public void UptimeUsesQuotedChineseLiterals(double seconds, string expected) => Assert.Equal(expected, Display.Uptime(seconds));
     private static string Json => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "single-algorithm.synthetic.json"));
     [Fact] public void ParsesDeviceIdsAndCumulativeSharesWithoutCountingTotalsAsAnotherGpu()
     {

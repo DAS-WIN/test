@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using SrbMinerMonitor.App.Services;
 using SrbMinerMonitor.App.ViewModels;
 using Forms = System.Windows.Forms;
 
@@ -10,26 +11,41 @@ namespace SrbMinerMonitor.App;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel = new();
-    private readonly Forms.NotifyIcon _tray;
+    private readonly Forms.NotifyIcon? _tray;
     private bool _allowClose, _notified;
     public MainWindow(bool demo)
     {
         InitializeComponent();
         DataContext = _viewModel;
-        SourceInitialized += (_, _) => { var dark = 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int)); };
-        _tray = new Forms.NotifyIcon
+        SourceInitialized += (_, _) =>
         {
-            Icon = System.Drawing.SystemIcons.Application,
-            Text = "SRBMiner Monitor", Visible = true,
-            ContextMenuStrip = new Forms.ContextMenuStrip()
+            try { var dark = 1; DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int)); }
+            catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) { StartupDiagnostics.Write("Title bar styling unavailable: " + e.Message); }
         };
-        _tray.DoubleClick += (_, _) => Dispatcher.Invoke(Restore);
-        _tray.ContextMenuStrip.Items.Add("開啟 SRBMiner Monitor", null, (_, _) => Dispatcher.Invoke(Restore));
-        _tray.ContextMenuStrip.Items.Add("停止並退出", null, (_, _) => Dispatcher.Invoke(() =>
-        { if (_viewModel.ExitCommand.CanExecute(null)) _viewModel.ExitCommand.Execute(null); }));
+        ContentRendered += (_, _) => StartupDiagnostics.Write("Main window rendered.");
+        try
+        {
+            _tray = new Forms.NotifyIcon
+            {
+                Icon = System.Drawing.SystemIcons.Application,
+                Text = "SRBMiner Monitor", Visible = true,
+                ContextMenuStrip = new Forms.ContextMenuStrip()
+            };
+            _tray.DoubleClick += (_, _) => Dispatcher.Invoke(Restore);
+            _tray.ContextMenuStrip.Items.Add("開啟 SRBMiner Monitor", null, (_, _) => Dispatcher.Invoke(Restore));
+            _tray.ContextMenuStrip.Items.Add("停止並退出", null, (_, _) => Dispatcher.Invoke(() =>
+            { if (_viewModel.ExitCommand.CanExecute(null)) _viewModel.ExitCommand.Execute(null); }));
+        }
+        catch (Exception e)
+        {
+            _tray?.Dispose();
+            _tray = null;
+            StartupDiagnostics.Write("System tray unavailable: " + e);
+            _viewModel.ShowError(new InvalidOperationException("系統匣無法使用，視窗仍可正常操作；關閉視窗會停止並退出。"));
+        }
         _viewModel.ExitRequested += () => { _allowClose = true; Close(); };
         Loaded += async (_, _) => { try { await _viewModel.InitializeAsync(demo); } catch (Exception e) { _viewModel.ShowError(e); } };
-        Closed += (_, _) => { _tray.Visible = false; _tray.Dispose(); _viewModel.Dispose(); Application.Current.Shutdown(); };
+        Closed += (_, _) => { if (_tray is { } tray) { tray.Visible = false; tray.Dispose(); } _viewModel.Dispose(); Application.Current.Shutdown(); };
     }
     private void Restore() { Show(); WindowState = WindowState.Normal; Activate(); }
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
@@ -37,6 +53,11 @@ public partial class MainWindow : Window
     {
         if (_allowClose) return;
         e.Cancel = true;
+        if (_tray is null)
+        {
+            if (_viewModel.ExitCommand.CanExecute(null)) _viewModel.ExitCommand.Execute(null);
+            return;
+        }
         Hide();
         if (_notified) return;
         _notified = true;

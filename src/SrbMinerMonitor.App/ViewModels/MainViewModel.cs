@@ -73,7 +73,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private MinerSettings MonitoringSettings => _activeSettings ?? _saved;
     public string RigTitle => (_demo ? "本機礦機" : MonitoringSettings.RigName) + " / " + (_snapshot?.Algorithm ?? (string.IsNullOrEmpty(MonitoringSettings.Algorithm) ? "尚未設定演算法" : MonitoringSettings.Algorithm));
     public string Version => "SRBMiner " + (_snapshot?.Version ?? "—") + "  ·  單機 / 單一演算法";
-    public string Uptime => _snapshot?.UptimeSeconds is double s ? TimeSpan.FromSeconds(Math.Min(s, TimeSpan.MaxValue.TotalSeconds / 2)).ToString(@"d\ 天\ hh\:mm\:ss") : "—";
+    public string Uptime => Display.Uptime(_snapshot?.UptimeSeconds);
     public string LastUpdate => _snapshot?.Timestamp.ToLocalTime().ToString("HH:mm:ss") ?? "—";
     public string Freshness => _snapshot is null ? "等待資料" : DateTimeOffset.Now - _snapshot.Timestamp > TimeSpan.FromSeconds(15)
         ? "資料過期" : _apiHealthy ? "每 5 秒更新" : "更新失敗 · 保留最後讀值";

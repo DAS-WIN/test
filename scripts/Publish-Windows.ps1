@@ -12,7 +12,8 @@ try {
     Copy-Item README.md $portable
     Copy-Item docs $portable -Recurse -Force
     Copy-Item scripts/Start-Demo.cmd $portable
-    $zip = Join-Path $outRoot 'SRBMinerMonitor-0.1.0-win-x64.zip'
+    Copy-Item scripts/Start-Diagnostics.cmd $portable
+    $zip = Join-Path $outRoot 'SRBMinerMonitor-0.1.1-win-x64.zip'
     Compress-Archive -Path (Join-Path $portable '*') -DestinationPath $zip -Force
     Get-FileHash $zip -Algorithm SHA256
 } finally { Pop-Location }
