@@ -133,7 +133,7 @@ internal static class Program
     }
     private static async Task VerifyBatchLifecycle(MainViewModel vm, string executable, string output, Func<string, Task> render)
     {
-        var directory = Path.Combine(output, "BAT 測試 & %SRBM_UNEXPANDED% !");
+        var directory = Path.Combine(Path.GetTempPath(), "SRBM-BAT-" + Guid.NewGuid().ToString("N"), "BAT 測試 & %SRBM_UNEXPANDED% !");
         Directory.CreateDirectory(directory);
         foreach (var path in Directory.GetFiles(Path.GetDirectoryName(executable)!)) File.Copy(path, Path.Combine(directory, Path.GetFileName(path)), true);
         File.Copy(executable, Path.Combine(directory, "SRBMiner-MULTI.exe"), true);
@@ -153,8 +153,10 @@ internal static class Program
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線") || vm.Hashrate == "—" || vm.Gpus.Count != 1 || !vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("BAT -> API -> dashboard failed: " + vm.Notice + " / " + vm.ApiStatus);
             await render("bat-settings"); vm.OverviewCommand.Execute(null); await render("bat-live-api-fixture");
+            Console.WriteLine("PASS: user-shaped BAT monitoring copy -> API -> dashboard.");
             await Execute(vm, vm.StopCommand);
             await AssertPortClosed(port);
+            Console.WriteLine("PASS: managed BAT stop closed its API port.");
             // START exits its cmd parent immediately. The Job must still own the surviving child.
             var detached = Path.Combine(directory, "detached.bat");
             await File.WriteAllTextAsync(detached, $"@echo off\r\nstart \"\" /b \"%~dp0SRBMiner-MULTI.exe\" --api-enable --api-port {port}\r\nexit /b\r\n", Encoding.ASCII);
@@ -163,18 +165,21 @@ internal static class Program
             await WaitForApi(vm);
             await Task.Delay(1000);
             if (!vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("Lost ownership when cmd exited before its child.");
+            Console.WriteLine("PASS: detached START child remains owned after cmd exits.");
             await Execute(vm, vm.RestartCommand);
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線")) throw new InvalidOperationException("BAT restart failed.");
             await Execute(vm, vm.StopCommand);
             await AssertPortClosed(port);
+            Console.WriteLine("PASS: detached BAT restart and stop completed; API port closed.");
             await File.WriteAllTextAsync(Path.Combine(output, "batch-integration.txt"), "PASS: original BAT preserved; monitoring copy adds API; Unicode/space/ampersand/literal-percent/exclamation paths; API -> dashboard; stop kills owned tree; detached START children remain owned; restart returns to API; no mining performed.");
         }
         finally
         {
             if (vm.StopCommand.CanExecute(null)) await Execute(vm, vm.StopCommand);
             vm.Settings.UseBatchFile = false;
-            try { Directory.Delete(directory, true); } catch (IOException) { }
+            try { Directory.Delete(directory, true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { StartupDiagnostics.Write("Deferred temporary fixture cleanup: " + e.Message); }
         }
     }
     private static async Task AssertPortClosed(int port)
