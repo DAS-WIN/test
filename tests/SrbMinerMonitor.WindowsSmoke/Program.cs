@@ -24,6 +24,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (ConsoleBatchHost.TryHandleArguments(args, out var batchExit)) return batchExit;
         if (ConsoleStopSignal.TryHandleArguments(args, out var helperExit)) return helperExit;
         if (Native.GetConsoleWindow() != IntPtr.Zero) { Console.Error.WriteLine("GUI integration host must not have an attached console."); return 1; }
         Console.WriteLine("PASS: integration host is WinExe with no attached console.");

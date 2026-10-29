@@ -7,6 +7,7 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (SrbMinerMonitor.Core.ConsoleBatchHost.TryHandleArguments(args, out var batchExit)) return batchExit;
         if (SrbMinerMonitor.Core.ConsoleStopSignal.TryHandleArguments(args, out var helperExit)) return helperExit;
         StartupDiagnostics.SuppressDialogs = args.Contains("--no-error-dialog");
         StartupDiagnostics.Initialize();
