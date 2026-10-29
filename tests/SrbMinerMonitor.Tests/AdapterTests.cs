@@ -62,6 +62,18 @@ public sealed class AdapterTests
         Assert.Null(session.GetShares(null).Accepted);
     }
     [Fact]
+    public void EquivalentLiveSettingsDoNotResetOutputBeforeFirstApiResponse()
+    {
+        using var monitor = new MonitoringService(sensors: []);
+        var id = Guid.NewGuid(); var settings = new MinerSettings();
+        monitor.EnsureSession(settings, id);
+        monitor.ConsumeOutput(id, "GPU0[t0] share accepted [100ms]", DateTimeOffset.Now);
+        monitor.EnsureSession(settings with { MetricRefresh = new(), Restart = new() }, id);
+        Assert.Equal(1, monitor.GetShares().Accepted);
+        monitor.EnsureSession(settings, Guid.NewGuid());
+        Assert.Null(monitor.GetShares().Accepted);
+    }
+    [Fact]
     public async Task SecondAdapterUsesCommonPipelineWithCpuAndDifferentUnits()
     {
         var adapter = new SyntheticAdapter();
