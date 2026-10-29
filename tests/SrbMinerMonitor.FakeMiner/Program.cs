@@ -26,6 +26,7 @@ var accepted = 4;
 Console.WriteLine($"FIXTURE_OUTPUT_REDIRECTED={Console.IsOutputRedirected}");
 Console.WriteLine($"FIXTURE_CONSOLE_VISIBLE={Native.IsWindowVisible(Native.GetConsoleWindow())}");
 Console.WriteLine($"FIXTURE_MINER_PID={Environment.ProcessId}");
+Console.WriteLine("Difficulty 1000.000 [fixture][0]");
 for (var i = 0; i < 4; i++) Console.WriteLine("\u001b[32mGPU0[t0] share accepted [ 213ms ][pearlhash][0]\u001b[0m");
 Console.Error.WriteLine("GPU0[t0] share rejected [ 10ms ][pearlhash][0]");
 Console.WriteLine("ID Name Hashrate Power Eff Fan Temp CClk MClk A R HW");
@@ -37,11 +38,12 @@ var outputTask = Task.Run(async () =>
         while (!lifetime.IsCancellationRequested)
         {
             await Task.Delay(100, lifetime.Token);
-            foreach (var kind in new[] { "accepted", "rejected", "timeout", "api-accepted", "flush-accepted" })
+            foreach (var kind in new[] { "accepted", "rejected", "timeout", "api-accepted", "flush-accepted", "difficulty" })
             {
                 var trigger = Path.Combine(Environment.CurrentDirectory, "fixture-" + kind);
                 if (!File.Exists(trigger)) continue;
                 File.Delete(trigger);
+                if (kind == "difficulty") { Console.WriteLine("Job received [fixture] block height 1 [diff: 2000] [fixture][0]"); continue; }
                 if (kind == "api-accepted") { Interlocked.Increment(ref accepted); continue; }
                 if (kind == "flush-accepted") { Console.WriteLine("GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE"); continue; }
                 if (kind == "accepted") Interlocked.Increment(ref accepted);

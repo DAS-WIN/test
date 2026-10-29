@@ -61,6 +61,17 @@
      </Border>
     </StackPanel>
    </Border>
+   <Border Style="{StaticResource Panel}" Margin="0,0,0,18"><StackPanel>
+    <DockPanel><Button DockPanel.Dock="Right" Content="開啟 Log 資料夾" Command="{Binding OpenMiningLogsCommand}"/><TextBlock Text="Accepted 平均成功分享（全部 GPU）" FontSize="15" FontWeight="SemiBold"/></DockPanel>
+    <UniformGrid Columns="3" Margin="0,14,0,0">
+     <StackPanel Margin="0,0,12,0"><TextBlock Text="最近 10 分鐘" Style="{StaticResource Muted}"/><TextBlock x:Name="AcceptedAverage10mValue" Text="{Binding AcceptedAverage10m}" Foreground="{StaticResource SuccessBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/></StackPanel>
+     <StackPanel Margin="0,0,12,0"><TextBlock Text="最近 30 分鐘" Style="{StaticResource Muted}"/><TextBlock Text="{Binding AcceptedAverage30m}" Foreground="{StaticResource SuccessBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/></StackPanel>
+     <StackPanel><TextBlock Text="最近 1 小時" Style="{StaticResource Muted}"/><TextBlock Text="{Binding AcceptedAverage1h}" Foreground="{StaticResource SuccessBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/></StackPanel>
+    </UniformGrid>
+    <TextBlock Text="平均 = 時段內新增 Accepted ÷ 實際涵蓋分鐘。統計目前運行階段，重啟重新起算；未滿時段以實際觀測時間換算。" Style="{StaticResource Muted}" TextWrapping="Wrap" FontSize="11" Margin="0,12,0,0"/>
+    <TextBlock Text="{Binding AcceptedAverageUpdated, StringFormat=分享統計更新時間：{0}}" Style="{StaticResource Muted}" FontSize="11" Margin="0,6,0,0"/>
+    <TextBlock Text="{Binding MiningLogStatus}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"/>
+   </StackPanel></Border>
    <Grid Margin="0,0,0,18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="280"/></Grid.ColumnDefinitions>
     <Border Style="{StaticResource Panel}">
      <StackPanel>

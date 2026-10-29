@@ -11,6 +11,7 @@ using System.Windows.Input;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using SrbMinerMonitor.Core;
 using SrbMinerMonitor.App;
 using SrbMinerMonitor.App.Services;
@@ -249,6 +250,35 @@ internal static class Program
         const string expected = "GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE";
         if (vm.RecentShares.First().Message != expected || vm.Events.Count(e => e.Category == "成功") != successes + 1 || vm.TotalAccepted != "5" || vm.RecentShares.Any(e => e.Message.Contains("API 已確認"))) throw new InvalidOperationException("Recent shares must preserve the exact CMD message without API text or duplicate counts.");
         Console.WriteLine("PASS: API only updates numeric counters; recent-success panel stays unchanged until CMD output, then shows the exact original line once.");
+        await vm.FlushMiningLogsAsync();
+        var baselineRecords = ReadMiningRecords(vm);
+        var activeSession = baselineRecords.Last(e => e.GetProperty("kind").GetString() == "session_start").GetProperty("session").GetGuid();
+        var hardwareRecords = baselineRecords.Count(e => e.GetProperty("session").GetGuid() == activeSession && e.GetProperty("kind").GetString() == "hardware");
+        await File.WriteAllTextAsync(Path.Combine(directory, "fixture-difficulty"), "go");
+        deadline = DateTimeOffset.Now.AddSeconds(3);
+        while (!vm.MinerOutputText.Contains("[diff: 2000]") && DateTimeOffset.Now < deadline) await Task.Delay(20);
+        if (!vm.MinerOutputText.Contains("[diff: 2000]")) throw new InvalidOperationException("Difficulty output was not observed.");
+        await File.WriteAllTextAsync(Path.Combine(directory, "fixture-accepted"), "go");
+        deadline = DateTimeOffset.Now.AddSeconds(3);
+        while (vm.TotalAccepted != "6" && DateTimeOffset.Now < deadline) await Task.Delay(20);
+        await vm.FlushMiningLogsAsync();
+        var records = ReadMiningRecords(vm).Where(e => e.GetProperty("session").GetGuid() == activeSession).ToArray();
+        if (records.Where(e => e.GetProperty("kind").GetString() == "accepted").Sum(e => e.GetProperty("accepted_delta").GetInt64()) != 6)
+            throw new InvalidOperationException("Mining log duplicated API and buffered output shares.");
+        var lastAccepted = records.Last(e => e.GetProperty("kind").GetString() == "accepted");
+        if (lastAccepted.GetProperty("accepted_total").GetInt64() != 6 || lastAccepted.GetProperty("pool_difficulty").GetDouble() != 2000
+            || lastAccepted.GetProperty("pool_difficulty_timestamp").ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("Accepted log is missing current reported pool difficulty.");
+        if (records.Count(e => e.GetProperty("kind").GetString() == "hardware") != hardwareRecords || Hardware() != frozen)
+            throw new InvalidOperationException("Immediate accepted or difficulty logging refreshed frozen hardware.");
+        if (!records.Any(e => e.GetProperty("kind").GetString() == "hardware" && e.GetProperty("hashrate_hps").GetDouble() > 0)
+            || !records.Any(e => e.GetProperty("kind").GetString() == "difficulty" && e.GetProperty("pool_difficulty").GetDouble() == 2000))
+            throw new InvalidOperationException("Hardware and difficulty records missing.");
+        if (!vm.AcceptedAverage10m.Contains("新增 6 筆") || !vm.AcceptedAverage30m.Contains("涵蓋") || !vm.AcceptedAverage1h.Contains("筆／分鐘"))
+            throw new InvalidOperationException("Accepted rolling averages are missing actual coverage.");
+        await render("accepted-averages-and-mining-log");
+        Console.WriteLine("PASS: 10m/30m/1h accepted averages; actual coverage; hardware log; immediate accepted log without duplicate API/output counts; current pool difficulty 1000 -> 2000 logged independently of daily hardware.");
+
         vm.Settings.RefreshValue = "2"; vm.Settings.RefreshUnit = "秒";
         await Execute(vm, vm.SaveCommand);
         var before = Hardware(); var power = vm.Power; var rate = vm.Hashrate;
@@ -343,6 +373,20 @@ internal static class Program
         if (watch.Elapsed < TimeSpan.FromSeconds(59) || vm.ScheduleSummary != "自動重啟未啟用") throw new InvalidOperationException("Scheduled crash recovery skipped full wait or did not complete one-shot.");
         await render("scheduled-unexpected-exit-recovered");
         Console.WriteLine("PASS: recovery checkbox OFF + timed schedule ON; crash interrupts 10-minute run -> configured full 1-minute wait -> exactly one new miner, one-shot completes; GUI PID unchanged=" + appPid + ".");
+    }
+    private static List<JsonElement> ReadMiningRecords(MainViewModel vm)
+    {
+        var rows = new List<JsonElement>();
+        foreach (var path in Directory.GetFiles(vm.MiningLogDirectory, "*.log"))
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            while (reader.ReadLine() is { } line)
+            {
+                using var document = JsonDocument.Parse(line); rows.Add(document.RootElement.Clone());
+            }
+        }
+        return rows.OrderBy(e => e.GetProperty("timestamp").GetDateTimeOffset()).ToList();
     }
     private static async Task AssertPortClosed(int port)
     {

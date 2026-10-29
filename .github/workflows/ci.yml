@@ -33,7 +33,7 @@ jobs:
       - run: ./scripts/Verify-PublishedStartup.ps1
         shell: pwsh
       - name: Publish verified private prerelease
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/bat-monitoring'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/0.1.8-accepted-logs'
         run: ./scripts/Publish-GitHubRelease.ps1
         shell: pwsh
         env:

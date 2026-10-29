@@ -17,6 +17,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly MinerOutput _minerOutput = new();
     private readonly MinuteMetrics _minuteMetrics = new();
+    private readonly AcceptedHistory _acceptedHistory = new();
+    private readonly MiningLogWriter _miningLog;
+    private Guid _telemetryRun, _snapshotOutputSession, _lastHardwareRun;
+    private double? _poolDifficulty;
+    private DateTimeOffset? _difficultyTimestamp, _acceptedObservedAt;
     private readonly Queue<string> _outputLines = new();
     private MinerSettings _saved = new();
     private MinerSettings? _activeSettings;
@@ -56,6 +61,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand CancelScheduleCommand { get; }
     public ICommand AllGpusCommand { get; }
     public ICommand ExitCommand { get; }
+    public ICommand OpenMiningLogsCommand { get; }
     public event Action? ExitRequested;
     public bool IsBusy { get => _busy; private set { Set(ref _busy, value); Refresh(); } }
     public string Notice { get => _notice; private set => Set(ref _notice, value); }
@@ -81,7 +87,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string Power => Display.Number(_minuteMetrics.Snapshot?.TotalPower, "W");
     public string Efficiency => Display.Hash(_minuteMetrics.Snapshot?.Efficiency, true, _minuteMetrics.Snapshot?.TotalHashrate);
     public string Temperature => Display.Number(_minuteMetrics.Snapshot?.MaxTemperature, "°C", "0");
-    private MinerSnapshot? CurrentSnapshot => _controller.IsRunning && _lastControllerSession != _controller.Session ? null : _snapshot;
+    private MinerSnapshot? CurrentSnapshot => (_process.OutputSession != Guid.Empty && _snapshotOutputSession != _process.OutputSession)
+        || (_controller.IsRunning && _lastControllerSession != _controller.Session) ? null : _snapshot;
     private ShareStats TotalShares => MinerOutput.Max(CurrentSnapshot?.Shares, _minerOutput.Total);
     private ShareStats Shares => SelectedGpu is null ? TotalShares : MinerOutput.Max(
         CurrentSnapshot?.Gpus.FirstOrDefault(g => g.Id == SelectedGpu.Metrics.Id)?.Shares ?? (Gpus.Count == 1 ? CurrentSnapshot?.Shares : null),
@@ -107,6 +114,52 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         .Select(s => { var gpu = SelectedGpu is null ? null : s.Gpus.FirstOrDefault(g => g.Id == SelectedGpu.Metrics.Id);
             var value = Metric switch { "功耗" => SelectedGpu is null ? s.TotalPower : gpu?.Power, "溫度" => SelectedGpu is null ? s.MaxTemperature : gpu?.Temperature, _ => SelectedGpu is null ? s.TotalHashrate : gpu?.Hashrate };
             return new ChartSample(s.Timestamp, value, s.Session); }).ToArray();
+    public string AcceptedAverage10m => AcceptedAverage(TimeSpan.FromMinutes(10));
+    public string AcceptedAverage30m => AcceptedAverage(TimeSpan.FromMinutes(30));
+    public string AcceptedAverage1h => AcceptedAverage(TimeSpan.FromHours(1));
+    public string AcceptedAverageUpdated => _acceptedObservedAt?.ToLocalTime().ToString("HH:mm:ss") ?? "—";
+    public string MiningLogDirectory => _miningLog.DirectoryPath;
+    public string MiningLogStatus => _miningLog.Error ?? "自動記錄：" + MiningLogDirectory;
+    public Task FlushMiningLogsAsync() => _miningLog.FlushAsync();
+    private string AcceptedAverage(TimeSpan duration)
+    {
+        var window = _acceptedHistory.Window(duration);
+        if (window.MissingBoundary) return "— · 缺少時段邊界資料";
+        if (window.PerMinute is null) return "— · 尚在累積資料";
+        return Display.Number(window.PerMinute, "筆／分鐘", "0.00")
+            + $" · 新增 {window.Count:N0} 筆 · 涵蓋 {window.Coverage.TotalMinutes:0.00} 分鐘";
+    }
+    private void BeginAcceptedSession(Guid session, DateTimeOffset now)
+    {
+        _acceptedHistory.Begin(session, now); _acceptedObservedAt = null;
+        WriteMiningLog("session_start", now, 0);
+    }
+    private void EnsureAcceptedSession(DateTimeOffset now)
+    {
+        if (_telemetryRun == _process.OutputSession) return;
+        _telemetryRun = _process.OutputSession; _lastHardwareRun = Guid.Empty;
+        _poolDifficulty = null; _difficultyTimestamp = null;
+        BeginAcceptedSession(_telemetryRun, now);
+    }
+    private void RecordAccepted(DateTimeOffset now)
+    {
+        if (_process.OutputSession == Guid.Empty) return;
+        EnsureAcceptedSession(now);
+        if (TotalShares.Accepted is not long count) return;
+        var delta = _acceptedHistory.Observe(now, count);
+        _acceptedObservedAt = now;
+        if (delta > 0) WriteMiningLog("accepted", now, delta);
+    }
+    private void WriteMiningLog(string kind, DateTimeOffset now, long? delta = null)
+    {
+        var hardware = _lastHardwareRun == _process.OutputSession ? _minuteMetrics.Snapshot : null;
+        _miningLog.TryWrite(new(now, kind, _acceptedHistory.Session, _acceptedHistory.Total, delta,
+            hardware?.TotalHashrate, hardware?.Timestamp,
+            _acceptedHistory.Window(TimeSpan.FromMinutes(10)).PerMinute,
+            _acceptedHistory.Window(TimeSpan.FromMinutes(30)).PerMinute,
+            _acceptedHistory.Window(TimeSpan.FromHours(1)).PerMinute,
+            _poolDifficulty, _difficultyTimestamp));
+    }
     public string Average1m => Average(TimeSpan.FromMinutes(1));
     public string Average15m => Average(TimeSpan.FromMinutes(15));
     public string Average1h => Average(TimeSpan.FromHours(1));
@@ -141,6 +194,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public MainViewModel(SettingsStore? store = null)
     {
         _store = store ?? new SettingsStore();
+        _miningLog = new MiningLogWriter(Path.Combine(_store.DirectoryPath, "MiningLogs"));
         _controller = new MinerController(_process);
         _controller.Event += text => { Notice = Redact(text); Refresh(); };
         Settings.PropertyChanged += (_, _) => { Changed(nameof(StartRequirement)); CommandManager.InvalidateRequerySuggested(); };
@@ -149,10 +203,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var session = _process.OutputSession;
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
-                if (session != _process.OutputSession) return;
+                if (session != _process.OutputSession || _lifetime.IsCancellationRequested) return;
                 if (_outputSession != session) { _outputSession = session; _minerOutput.Reset(); }
+                var now = DateTimeOffset.Now;
+                EnsureAcceptedSession(now);
                 var clean = MinerOutput.Clean(line);
+                if (PoolDifficultyReader.Read(clean) is double difficulty && difficulty != _poolDifficulty)
+                {
+                    _poolDifficulty = difficulty; _difficultyTimestamp = now;
+                    WriteMiningLog("difficulty", now);
+                }
                 _minerOutput.Read(clean);
+                RecordAccepted(now);
                 _outputLines.Enqueue(Redact(clean)); while (_outputLines.Count > 500) _outputLines.Dequeue();
                 if (MinerOutput.Outcome(clean) is string outcome) AddShareEvent(outcome, clean);
                 Changed(nameof(MinerOutputText)); Refresh();
@@ -176,7 +238,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CancelScheduleCommand = new RelayCommand(() => ScheduleOpen = false);
         ApplyScheduleCommand = Command(ApplySchedule);
         AllGpusCommand = new RelayCommand(() => SelectedGpu = null);
-        ExitCommand = Command(async () => { await Stop(); _lifetime.Cancel(); ExitRequested?.Invoke(); });
+        OpenMiningLogsCommand = Command(() =>
+        {
+            Directory.CreateDirectory(MiningLogDirectory);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(MiningLogDirectory) { UseShellExecute = true });
+            return Task.CompletedTask;
+        });
+        ExitCommand = Command(async () => { await Stop(); _lifetime.Cancel(); await _miningLog.DisposeAsync(); ExitRequested?.Invoke(); });
     }
     public async Task InitializeAsync()
     {
@@ -346,10 +414,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             else if (snapshot.UptimeSeconds < _snapshot.UptimeSeconds)
             {
                 _lastSession = Guid.NewGuid(); _minerOutput.Reset();
+                EnsureAcceptedSession(snapshot.Timestamp); _poolDifficulty = null; _difficultyTimestamp = null; _lastHardwareRun = Guid.Empty;
+                BeginAcceptedSession(Guid.NewGuid(), snapshot.Timestamp);
             }
             _lastControllerSession = session; snapshot = snapshot with { Session = _lastSession };
-            _snapshot = snapshot; _apiHealthy = true; ApiStatus = $"API 已連線 · {snapshot.Timestamp:HH:mm:ss}";
+            _snapshot = snapshot; _snapshotOutputSession = _process.OutputSession; _apiHealthy = true; ApiStatus = $"API 已連線 · {snapshot.Timestamp:HH:mm:ss}";
             _minerOutput.Reconcile(snapshot);
+            if (_controller.IsRunning) RecordAccepted(DateTimeOffset.Now);
             Refresh(); // Publish recent shares before waiting for hardware sensors.
             var refresh = _saved.MetricRefresh;
             if (_minuteMetrics.IsDue(snapshot.Timestamp, snapshot.Session, refresh))
@@ -360,6 +431,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 if (_minuteMetrics.Update(hardware, refresh))
                 {
                     History.Add(hardware);
+                    if (_controller.IsRunning)
+                    {
+                        EnsureAcceptedSession(hardware.Timestamp); _lastHardwareRun = _process.OutputSession;
+                        WriteMiningLog("hardware", DateTimeOffset.Now);
+                    }
                     var selectedId = SelectedGpu?.Metrics.Id;
                     Gpus.Clear(); foreach (var gpu in hardware.Gpus) Gpus.Add(new(gpu));
                     _selectedGpu = selectedId is int id ? Gpus.FirstOrDefault(g => g.Metrics.Id == id) : null; Changed(nameof(SelectedGpu));
@@ -372,10 +448,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private void Refresh()
     {
-        foreach (var property in new[] { nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(HashrateUpdate), nameof(MetricRefreshSummary), nameof(ChartMaxGapSeconds), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(TotalAccepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(PoolSource), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(ApiEndpoint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
+        foreach (var property in new[] { nameof(AcceptedAverage10m), nameof(AcceptedAverage30m), nameof(AcceptedAverage1h), nameof(AcceptedAverageUpdated), nameof(MiningLogStatus), nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(HashrateUpdate), nameof(MetricRefreshSummary), nameof(ChartMaxGapSeconds), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(TotalAccepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(PoolSource), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(ApiEndpoint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
         CommandManager.InvalidateRequerySuggested();
     }
-    public void Dispose() { _lifetime.Cancel(); _api.Dispose(); _process.Dispose(); _lifetime.Dispose(); }
+    public void Dispose() { _lifetime.Cancel(); _api.Dispose(); _process.Dispose(); _miningLog.DisposeAsync().AsTask().GetAwaiter().GetResult(); _lifetime.Dispose(); }
 }
 
 public sealed record ChartSample(DateTimeOffset Time, double? Value, Guid Session);
