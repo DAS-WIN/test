@@ -18,6 +18,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private MinuteMetrics _minuteMetrics => _monitor.Metrics;
     private readonly Queue<string> _outputLines = new();
+    private readonly Queue<(Guid Session, string Line)> _pendingOutput = new();
     private MinerSettings _saved = new();
     private MinerSettings? _activeSettings;
     private RestartOptions _restart = new();
@@ -156,12 +157,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 if (session != _process.OutputSession) return;
+                if (_controller.IsTransitioning)
+                {
+                    _pendingOutput.Enqueue((session, line));
+                    return;
+                }
                 EnsureMonitoringSession();
-                var observation = _monitor.ConsumeOutput(_controller.Session, line, DateTimeOffset.Now);
-                if (observation is null) return;
-                _outputLines.Enqueue(Redact(observation.Text)); while (_outputLines.Count > 500) _outputLines.Dequeue();
-                if (observation.Event is { } share) AddShareEvent(share.Category, share.Message);
-                Changed(nameof(MinerOutputText)); Refresh();
+                FlushPendingOutput();
+                ConsumeOutput(line);
             });
         };
         AsyncCommand Command(Func<Task> action, Func<bool>? can = null) => new(() => Busy(action), ShowError, () => !IsBusy && !_controller.IsTransitioning && (can?.Invoke() ?? true));
@@ -347,6 +350,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             EnsureMonitoringSession();
+            FlushPendingOutput();
             var data = await _monitor.ReadAsync(_lifetime.Token);
             if (data is null || _controller.IsTransitioning || session != _controller.Session) return;
             var snapshot = data.Snapshot;
@@ -368,6 +372,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception e) { _apiHealthy = false; ApiStatus = "API 尚未連線：" + Redact(e.Message) + "；BAT 的成功分享訊息仍即時接收。"; }
         Refresh();
+    }
+    private void ConsumeOutput(string line)
+    {
+        var observation = _monitor.ConsumeOutput(_controller.Session, line, DateTimeOffset.Now);
+        if (observation is null) return;
+        _outputLines.Enqueue(Redact(observation.Text)); while (_outputLines.Count > 500) _outputLines.Dequeue();
+        if (observation.Event is { } share) AddShareEvent(share.Category, share.Message);
+        Changed(nameof(MinerOutputText)); Refresh();
+    }
+    private void FlushPendingOutput()
+    {
+        while (_pendingOutput.TryDequeue(out var pending))
+            if (pending.Session == _process.OutputSession) ConsumeOutput(pending.Line);
     }
     private void EnsureMonitoringSession()
     {
