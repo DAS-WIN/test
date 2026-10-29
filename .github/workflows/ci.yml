@@ -44,7 +44,10 @@ jobs:
         if: always()
         with:
           name: windows-screenshots
-          path: artifacts/screenshots
+          path: |
+            artifacts/screenshots/*.png
+            artifacts/screenshots/*.log
+            artifacts/screenshots/*.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
