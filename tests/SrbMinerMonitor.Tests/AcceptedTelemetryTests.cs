@@ -46,6 +46,24 @@ public sealed class AcceptedTelemetryTests
         Assert.Null(h.Window(TimeSpan.FromMinutes(10)).PerMinute);
         Assert.Equal(5, h.Window(TimeSpan.FromMinutes(30)).PerMinute);
     }
+    [Fact] public void CursorPositionOutputIsDeliveredWithoutNewlinesAndRepaintIsNotDuplicated()
+    {
+        const string share = "GPU0[t0] share accepted [100ms] [fixture][0]";
+        var rows = new List<string>();
+        var text = "\u001b[2;1H" + share + "\u001b[3;1H" + share + "\u001b[4;1H"
+            + "\u001b[2;1H" + share + "\u001b[4;1H";
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text));
+        TerminalOutputReader.Pump(stream, rows.Add);
+        Assert.Equal(2, rows.Count(e => MinerOutput.Outcome(e) == "成功"));
+    }
+    [Fact] public void ScrollingPreservesIdenticalNewSharesAndUtf8Text()
+    {
+        var rows = new List<string>();
+        var text = string.Concat(Enumerable.Repeat("GPU0[t0] share accepted 測試\r\n", 200));
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text));
+        TerminalOutputReader.Pump(stream, rows.Add);
+        Assert.Equal(200, rows.Count); Assert.All(rows, row => Assert.Contains("測試", row));
+    }
     [Fact] public void TerminalTitleAndColorSequencesDoNotAlterAcceptedText()
     {
         var line = "\u001b]0;fixture\u0007\u001b[32mGPU0[t0] share accepted [100ms] [fixture][0]\u001b[0m";

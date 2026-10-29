@@ -162,7 +162,7 @@ internal static class Program
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線") || vm.Hashrate == "—" || vm.Gpus.Count != 1 || !vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("BAT -> API -> dashboard failed: " + vm.Notice + " / " + vm.ApiStatus);
             await render("bat-settings"); vm.OverviewCommand.Execute(null); await render("bat-live-api-fixture");
-            if (vm.TotalAccepted != "4" || vm.Rejected != "1" || vm.Pool != "fixture.example:8048") throw new InvalidOperationException("Output shares or BAT pool missing: " + vm.TotalAccepted + " / " + vm.Pool);
+            if (vm.TotalAccepted != "4" || vm.Rejected != "1" || vm.Pool != "fixture.example:8048") throw new InvalidOperationException("Output shares or BAT pool missing: " + vm.TotalAccepted + " / " + vm.Pool + " / terminal: " + vm.MinerOutputText);
             vm.SelectedGpu = vm.Gpus[0];
             if (vm.Accepted != "4" || vm.Acceptance != "80.0 %") throw new InvalidOperationException("Selected GPU hides accepted shares: " + vm.Accepted);
             if (!vm.MinerOutputText.Contains("FIXTURE_OUTPUT_REDIRECTED=False") || vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=True") || !vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=False")) throw new InvalidOperationException("Miner must have hidden live console output.");

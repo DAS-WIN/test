@@ -46,7 +46,7 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
         var reader = _output;
         _pump = Task.Run(() =>
         {
-            try { while (reader.ReadLine() is { } line) if (line.Length > 0) Log?.Invoke(line); }
+            try { TerminalOutputReader.Pump(reader.BaseStream, line => Log?.Invoke(line)); }
             catch (Exception e) when (e is IOException or ObjectDisposedException) { }
         });
         var startup = new StartupInfoEx { Startup = new StartupInfo { Size = (uint)Marshal.SizeOf<StartupInfoEx>(), Flags = 1, ShowWindow = 0 } };
