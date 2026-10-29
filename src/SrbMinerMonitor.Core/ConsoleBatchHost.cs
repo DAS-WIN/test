@@ -16,6 +16,8 @@ public static class ConsoleBatchHost
         if (!OperatingSystem.IsWindows() || args.Length != 1) { exitCode = 2; return true; }
         try
         {
+            if (GetConsoleWindow() == IntPtr.Zero && !AttachConsole(uint.MaxValue))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot attach child host to parent pseudoconsole.");
             var batch = Environment.GetEnvironmentVariable("SRBM_MONITOR_BATCH_PATH");
             if (string.IsNullOrEmpty(batch) || !File.Exists(batch)) throw new InvalidOperationException("Missing batch path.");
             var security = new SecurityAttributes { Size = (uint)Marshal.SizeOf<SecurityAttributes>(), Inherit = 1 };
@@ -31,7 +33,7 @@ public static class ConsoleBatchHost
                 { UseShellExecute = false, CreateNoWindow = false }) ?? throw new InvalidOperationException("Cannot start batch.");
             process.WaitForExit(); exitCode = process.ExitCode;
         }
-        catch { exitCode = 2; }
+        catch (Exception e) { try { Console.Error.WriteLine("CONSOLE_HOST_ERROR: " + e); } catch (Exception) { } exitCode = 2; }
         return true;
     }
     [StructLayout(LayoutKind.Sequential)] private struct SecurityAttributes { public uint Size; public IntPtr Descriptor; public int Inherit; }
@@ -40,5 +42,7 @@ public static class ConsoleBatchHost
     [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetConsoleMode(SafeFileHandle handle, out uint mode);
     [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetConsoleMode(SafeFileHandle handle, uint mode);
     [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetStdHandle(int kind, SafeFileHandle handle);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool AttachConsole(uint pid);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetConsoleWindow();
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetConsoleOutputCP(uint codePage);
 }

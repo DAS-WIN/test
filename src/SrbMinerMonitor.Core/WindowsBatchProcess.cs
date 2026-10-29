@@ -38,9 +38,12 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
 
         var batch = Path.GetFullPath(settings.BatchFile);
         var host = Environment.ProcessPath ?? throw new InvalidOperationException("找不到監控程式路徑。");
+        var cmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
         var environment = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables()) environment[(string)entry.Key] = (string?)entry.Value ?? "";
         environment["SRBM_MONITOR_BATCH_PATH"] = batch;
+        environment["SRBM_MONITOR_HOST_PATH"] = host;
+        environment["SRBM_MONITOR_HOST_ASSEMBLY"] = System.Reflection.Assembly.GetEntryAssembly()!.Location;
         _console = new WindowsPseudoConsole();
         _output = _console.Output;
         var reader = _output;
@@ -52,10 +55,10 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
         var startup = new StartupInfoEx { Startup = new StartupInfo { Size = (uint)Marshal.SizeOf<StartupInfoEx>(), Flags = 1, ShowWindow = 0 } };
         var envBlock = Marshal.StringToHGlobalUni(string.Join('\0', environment.Select(p => p.Key + "=" + p.Value)) + "\0\0");
         var initialized = false;
-        var command = new StringBuilder($"\"{host}\"");
+        var command = new StringBuilder($"\"{cmd}\" /d /v:off /s /c \"start \"\" /b /wait \"%SRBM_MONITOR_HOST_PATH%\" ");
         if (Path.GetFileNameWithoutExtension(host).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
-            command.Append($" \"{System.Reflection.Assembly.GetEntryAssembly()!.Location}\"");
-        command.Append(" " + ConsoleBatchHost.Argument);
+            command.Append("\"%SRBM_MONITOR_HOST_ASSEMBLY%\" ");
+        command.Append(ConsoleBatchHost.Argument + "\"");
         ProcessInformation child = default;
         try
         {
@@ -66,7 +69,7 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
             if (!InitializeProcThreadAttributeList(startup.Attributes, 1, 0, ref attributeSize)) throw new Win32Exception(Marshal.GetLastWin32Error());
             initialized = true;
             if (!UpdateProcThreadAttribute(startup.Attributes, 0, (IntPtr)0x20016, _console.Handle, (nuint)IntPtr.Size, IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
-            if (!CreateProcessW(host, command, IntPtr.Zero, IntPtr.Zero, false, 0x4 | 0x200 | 0x400 | 0x80000,
+            if (!CreateProcessW(cmd, command, IntPtr.Zero, IntPtr.Zero, false, 0x4 | 0x200 | 0x400 | 0x80000,
                 envBlock, Path.GetDirectoryName(batch)!, ref startup, out child)) throw new Win32Exception(Marshal.GetLastWin32Error());
             if (!AssignProcessToJobObject(_job, child.Process))
             {
