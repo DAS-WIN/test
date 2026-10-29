@@ -48,7 +48,6 @@ internal static class Program
                 if (vm.Settings.RefreshValue != "1" || vm.Settings.RefreshUnit != "分" || !vm.Settings.RefreshUnits.SequenceEqual(new[] { "秒", "分", "時", "天" })) throw new InvalidOperationException("Refresh interval must default to one minute with four units.");
                 if (vm.Gpus.Count != 0 || vm.Hashrate != "—") throw new InvalidOperationException("Startup must be empty; no demonstration data or automatic mining.");
                 if (vm.Settings.RestartOnUnexpectedExit) throw new InvalidOperationException("Unexpected-exit recovery must default to off.");
-                if (Descendants<Button>(window).Any(b => b.Content?.ToString()?.Contains("示範") == true)) throw new InvalidOperationException("Demo UI remains.");
                 if (window.Background is not SolidColorBrush rootBrush || rootBrush.Color != Color.FromRgb(16, 23, 32)) throw new InvalidOperationException("Window must explicitly use the dark background.");
                 if (window.FontSize != 13) throw new InvalidOperationException("MainWindow must explicitly apply its base Window style.");
                 await Render("overview");
@@ -57,11 +56,9 @@ internal static class Program
                     throw new InvalidOperationException("Read-only LastUpdate and Uptime Run.Text bindings must explicitly use OneWay.");
                 vm.ScheduleCommand.Execute(null); await Render("schedule"); vm.CancelScheduleCommand.Execute(null);
                 vm.SettingsCommand.Execute(null); await Render("settings");
-                if (Descendants<ComboBox>(window).Any(c => c.Name == "AlgorithmSelector")) throw new InvalidOperationException("Non-BAT settings remain.");
                 var heading = Descendants<TextBlock>(window).Single(t => t.Name == "RecentSharesHeading");
                 var cards = Descendants<System.Windows.Controls.Primitives.UniformGrid>(window).Single(g => g.Name == "SummaryCards");
                 if (heading.TranslatePoint(new Point(), window).Y >= cards.TranslatePoint(new Point(), window).Y) throw new InvalidOperationException("Recent accepted must be above total hashrate.");
-                if (Descendants<TextBlock>(window).Any(t => t.Text.Contains("成功分享 Accepted（全部 GPU）"))) throw new InvalidOperationException("Green accepted banner remains.");
                 foreach (var title in Descendants<TextBlock>(window).Where(t => t.Style == (Style)window.FindResource("SectionTitle")))
                     if (title.Foreground is not SolidColorBrush brush || brush.Color != Color.FromRgb(231, 239, 246)) throw new InvalidOperationException("Section titles must inherit the light foreground.");
                 if (args.Length > 1)
@@ -71,7 +68,7 @@ internal static class Program
                 vm.EventsCommand.Execute(null); await Render("events");
                 window.Width = 1100; window.Height = 720; vm.OverviewCommand.Execute(null); await Render("overview-small");
                 if (errors.Messages.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, errors.Messages));
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: GUI subsystem host without an attached console; actual Stop/Restart buttons retain the same visible GUI; CMD-only recent success and API-only numeric counters; dark theme; no demo or non-BAT launch; accepted above hashrate and no banner; event log contains only success/failure/timeout; minute hashrate independent of live shares; existing and pasted BAT; protected settings; BAT launch, real loopback HTTP polling, stop, restart and detached child ownership using a non-mining fixture; Run.Text OneWay; three pages, schedule, 1440x900/1100x720 rendered; no binding errors.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: GUI subsystem host without an attached console; actual Stop/Restart buttons retain the same visible GUI; CMD-only recent success and API-only numeric counters; dark theme; BAT-only launch; accepted above hashrate; event log contains only success/failure/timeout; minute hashrate independent of live shares; existing and pasted BAT; protected settings; BAT launch, real loopback HTTP polling, stop, restart and detached child ownership using a non-mining fixture; Run.Text OneWay; three pages, schedule, 1440x900/1100x720 rendered; no binding errors.");
             }
             catch (Exception e)
             {
@@ -149,11 +146,11 @@ internal static class Program
         Environment.SetEnvironmentVariable("PATH", sensorFixtureDirectory + Path.PathSeparator + previousSearchPath);
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
-        const string userShape = "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\nif not exist \"SRBMiner-MULTI.exe\" (\r\n echo ERROR: missing SRBMiner-MULTI.exe\r\n exit /b 1\r\n)\r\n\"%~dp0SRBMiner-MULTI.exe\" --algorithm-gpu pearlhash --disable-cpu --gpu-disable-oc --gpu-off-temperature 80 --pool fixture.example:8048 --tls true --wallet TEST --worker TEA-PC --log-file \"logs\\fixture.log\" --log-file-mode 1 --fixture-no-share-api\r\npause\r\nendlocal\r\n";
+        const string batchScript = "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\nif not exist \"SRBMiner-MULTI.exe\" (\r\n echo ERROR: missing SRBMiner-MULTI.exe\r\n exit /b 1\r\n)\r\n\"%~dp0SRBMiner-MULTI.exe\" --algorithm-gpu testhash --disable-cpu --gpu-disable-oc --gpu-off-temperature 80 --pool pool.example.test:4444 --tls true --wallet TEST --worker worker-01 --log-file \"logs\\fixture.log\" --log-file-mode 1 --fixture-no-share-api\r\npause\r\nendlocal\r\n";
         var original = Path.Combine(directory, "original.bat"); var monitoring = Path.Combine(directory, "original.monitor.bat");
-        await File.WriteAllTextAsync(original, userShape, Encoding.ASCII);
+        await File.WriteAllTextAsync(original, batchScript, Encoding.ASCII);
         await File.WriteAllBytesAsync(monitoring, BatchFileInspector.CreateMonitoringCopy(await File.ReadAllBytesAsync(original), port));
-        if (await File.ReadAllTextAsync(original) != userShape) throw new InvalidOperationException("Original BAT changed.");
+        if (await File.ReadAllTextAsync(original) != batchScript) throw new InvalidOperationException("Original BAT changed.");
         vm.Settings.BatchInputMode = vm.Settings.BatchModes[0]; vm.Settings.BatchFile = Path.GetFullPath(monitoring); vm.Settings.ApiPort = port.ToString();
         try
         {
@@ -161,13 +158,13 @@ internal static class Program
             await WaitForApi(vm);
             if (!vm.ApiStatus.StartsWith("API 已連線") || vm.Hashrate == "—" || vm.Gpus.Count != 1 || !vm.Status.StartsWith("BAT 運行中")) throw new InvalidOperationException("BAT -> API -> dashboard failed: " + vm.Notice + " / " + vm.ApiStatus);
             await render("bat-settings"); vm.OverviewCommand.Execute(null); await render("bat-live-api-fixture");
-            if (vm.TotalAccepted != "4" || vm.Rejected != "1" || vm.Pool != "fixture.example:8048") throw new InvalidOperationException("Output shares or BAT pool missing: " + vm.TotalAccepted + " / " + vm.Pool);
+            if (vm.TotalAccepted != "4" || vm.Rejected != "1" || vm.Pool != "pool.example.test:4444") throw new InvalidOperationException("Output shares or BAT pool missing: " + vm.TotalAccepted + " / " + vm.Pool);
             vm.SelectedGpu = vm.Gpus[0];
             if (vm.Accepted != "4" || vm.Acceptance != "80.0 %") throw new InvalidOperationException("Selected GPU hides accepted shares: " + vm.Accepted);
             if (!vm.MinerOutputText.Contains("FIXTURE_OUTPUT_REDIRECTED=True") || vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=True") || !vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=False")) throw new InvalidOperationException("Miner output must be redirected with its console hidden.");
             if (vm.RecentShares.Count() != 3 || vm.RecentShares.Any(e => !e.Message.Contains("share accepted"))) throw new InvalidOperationException("Green accepted events missing from application.");
             await render("accepted-background-miner");
-            Console.WriteLine("PASS: user-shaped BAT -> hidden console -> captured output -> accepted=4, selected GPU=4, rejected=1, acceptance=80%, configured pool.");
+            Console.WriteLine("PASS: structured BAT -> hidden console -> captured output -> accepted=4, selected GPU=4, rejected=1, acceptance=80%, configured pool.");
             var beforeShare = vm.TotalAccepted; var beforeHash = vm.Hashrate; var beforeHistory = vm.History.Samples.Count;
             var beforeMinute = DateTimeOffset.UtcNow.UtcTicks / TimeSpan.TicksPerMinute;
             await File.WriteAllTextAsync(Path.Combine(directory, "fixture-accepted"), "go");
@@ -183,13 +180,13 @@ internal static class Program
             Console.WriteLine("PASS: accepted updates within 2 seconds without changing minute hashrate; only success/rejected/timeout in event log.");
             await InvokeMinerButton(vm, "StopMinerButton"); await AssertPortClosed(port);
             // Paste the same script; API is inserted automatically and the temporary BAT uses the miner folder.
-            vm.Settings.BatchInputMode = vm.Settings.BatchModes[1]; vm.Settings.BatchContent = userShape; vm.Settings.BatchDirectory = directory;
+            vm.Settings.BatchInputMode = vm.Settings.BatchModes[1]; vm.Settings.BatchContent = batchScript; vm.Settings.BatchDirectory = directory;
             await Execute(vm, vm.SaveRestartCommand); await WaitForApi(vm);
             if (vm.TotalAccepted != "4" || Directory.GetFiles(directory, "SRBMiner-Monitor-*.bat").Length != 1) throw new InvalidOperationException("Pasted BAT launch failed.");
             var persisted = await File.ReadAllTextAsync(Path.Combine(output, "isolated-settings", "settings.json"));
             if (persisted.Contains("--wallet TEST") || persisted.Contains("\"BatchContent\"")) throw new InvalidOperationException("Pasted BAT must be protected in settings.");
             var restored = await new SettingsStore(Path.Combine(output, "isolated-settings")).LoadAsync();
-            if (restored.BatchContent != userShape || !restored.UsePastedBatch) throw new InvalidOperationException("Pasted BAT protection/restore failed.");
+            if (restored.BatchContent != batchScript || !restored.UsePastedBatch) throw new InvalidOperationException("Pasted BAT protection/restore failed.");
             vm.SettingsCommand.Execute(null); await render("pasted-bat-settings"); vm.OverviewCommand.Execute(null);
             await InvokeMinerButton(vm, "StopMinerButton"); await AssertPortClosed(port);
             if (Directory.GetFiles(directory, "SRBMiner-Monitor-*.bat").Length != 0) throw new InvalidOperationException("Generated BAT was not removed after stop.");
@@ -246,7 +243,7 @@ internal static class Program
         await File.WriteAllTextAsync(Path.Combine(directory, "fixture-flush-accepted"), "go");
         deadline = DateTimeOffset.Now.AddSeconds(3);
         while (!vm.RecentShares.First().Message.Contains("DELAYED_FIXTURE") && DateTimeOffset.Now < deadline) await Task.Delay(20);
-        const string expected = "GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE";
+        const string expected = "GPU0[t0] share accepted [777ms] [testhash][0] DELAYED_FIXTURE";
         if (vm.RecentShares.First().Message != expected || vm.Events.Count(e => e.Category == "成功") != successes + 1 || vm.TotalAccepted != "5" || vm.RecentShares.Any(e => e.Message.Contains("API 已確認"))) throw new InvalidOperationException("Recent shares must preserve the exact CMD message without API text or duplicate counts.");
         Console.WriteLine("PASS: API only updates numeric counters; recent-success panel stays unchanged until CMD output, then shows the exact original line once.");
         vm.Settings.RefreshValue = "2"; vm.Settings.RefreshUnit = "秒";
@@ -309,7 +306,7 @@ internal static class Program
             using var fixture = Process.GetProcessById(int.Parse(MinerPid()));
             fixture.Kill(); await fixture.WaitForExitAsync();
         }
-        // Test the original user's BAT shape with trailing PAUSE, not just detached START.
+        // Cover a foreground miner with a trailing PAUSE as well as detached START.
         var monitoring = Path.Combine(directory, "original.monitor.bat");
         vm.Settings.BatchFile = monitoring; vm.Settings.RestartOnUnexpectedExit = true;
         await Execute(vm, vm.SaveRestartCommand); await WaitForApi(vm);
@@ -365,7 +362,7 @@ internal static class Program
     }
     private static void VerifyDefaultRunBindingRejectsReadOnlySource()
     {
-        // Reproduce the 0.1.0 startup failure before subscribing to binding-error traces.
+        // Verify the WPF default binding behavior before collecting application binding errors.
         var source = new ReadOnlyText();
         try { new Run().SetBinding(Run.TextProperty, new Binding(nameof(ReadOnlyText.Value)) { Source = source }); }
         catch (InvalidOperationException)

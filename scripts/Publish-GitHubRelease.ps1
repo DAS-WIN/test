@@ -19,11 +19,12 @@ try {
     git archive --format=zip --prefix=SRBMinerMonitor/ -o $source HEAD
     if ($LASTEXITCODE -ne 0) { throw 'Source archive failed.' }
     Compress-Archive -Path artifacts/screenshots/* -DestinationPath $validation -Force
+    & ./scripts/Verify-ReleaseContent.ps1 -Archives @($portable, $source, $validation)
     $checks = @($portable, $source, $validation) | ForEach-Object {
         $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $([System.IO.Path]::GetFileName($_))"
     }
     $checks | Set-Content artifacts/SHA256SUMS.txt -Encoding utf8
-    gh release create $tag $portable $source $validation artifacts/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "SRBMiner Monitor $version" --notes-file "docs/RELEASE-NOTES-$version.md" --prerelease
+    gh release create $tag $portable $source $validation artifacts/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "SRBMiner Monitor $version" --notes-file "docs/RELEASE-NOTES-$version.md" --latest
     if ($LASTEXITCODE -ne 0) { throw 'GitHub prerelease upload failed.' }
 } finally { Pop-Location }

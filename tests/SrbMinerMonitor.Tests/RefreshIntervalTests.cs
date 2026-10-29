@@ -26,8 +26,8 @@ public sealed class RefreshIntervalTests
     [Fact] public void AllHardwareValuesHoldUntilConfiguredBucketChanges()
     {
         var sampler = new MinuteMetrics(); var session = Guid.NewGuid(); var interval = new MetricRefreshOptions(2, RefreshUnit.Seconds);
-        var time = new DateTimeOffset(2026, 10, 28, 23, 24, 0, TimeSpan.FromHours(8));
-        MinerSnapshot Sample(int second, int value) => new(time.AddSeconds(second), "test", "pearlhash", second,
+        var time = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        MinerSnapshot Sample(int second, int value) => new(time.AddSeconds(second), "test", "testhash", second,
             [new(0, "GPU", value, value, value, value, value, value)], new(value, 0), value, Session: session);
         var original = Sample(0, 100); Assert.True(sampler.Update(original, interval));
         Assert.False(sampler.Update(Sample(1, 200), interval)); Assert.Same(original, sampler.Snapshot);

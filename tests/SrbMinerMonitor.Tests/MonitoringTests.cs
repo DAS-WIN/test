@@ -26,12 +26,12 @@ public sealed class MonitoringTests
     }
     [Fact] public void MatchesNvidiaSensorsByBusInsteadOfEnumerationOrder()
     {
-        var sensors = NvidiaSensors.Parse("00000000:0A:00.0, NVIDIA RTX A, 200.5, 50, 65, 2100, 9000\n00000000:01:00.0, NVIDIA RTX B, 251.9, 69, 66, 2617, 14802\n");
+        var sensors = NvidiaSensors.Parse("00000000:0A:00.0, Fixture GPU A, 100, 40, 55, 1500, 5000\n00000000:01:00.0, Fixture GPU B, 150, 50, 60, 1600, 6000\n");
         var snapshot = NvidiaSensors.Merge(ApiParser.Parse(Json, DateTimeOffset.UtcNow), ApiParser.DeviceBuses(Json), sensors);
-        Assert.Equal("NVIDIA RTX B", snapshot.Gpus[0].Name);
-        Assert.Equal(251.9, snapshot.Gpus[0].Power);
-        Assert.Equal(452.4, snapshot.TotalPower!.Value, 5);
-        Assert.Equal(14802, snapshot.Gpus[0].MemoryClock);
+        Assert.Equal("Fixture GPU B", snapshot.Gpus[0].Name);
+        Assert.Equal(150, snapshot.Gpus[0].Power);
+        Assert.Equal(250, snapshot.TotalPower!.Value, 5);
+        Assert.Equal(6000, snapshot.Gpus[0].MemoryClock);
     }
     [Fact] public void AmbiguousBusDoesNotAssignSensorsToWrongCard()
     {
@@ -49,7 +49,7 @@ public sealed class MonitoringTests
         Assert.Null(new GpuMetrics(0, "GPU", 100, 0).Efficiency);
         Assert.Null(new GpuMetrics(0, "GPU", 100).Efficiency);
         Assert.Equal("—", Display.Hash(null, true));
-        Assert.Equal("0.806 TH/s/W", Display.Hash(202.91e12 / 251.9, true, 202.91e12));
+        Assert.Equal("0.800 TH/s/W", Display.Hash(120e12 / 150, true, 120e12));
     }
     [Fact] public void AcceptanceDoesNotDoubleCountStale()
     {

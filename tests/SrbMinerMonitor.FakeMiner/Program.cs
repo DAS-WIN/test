@@ -26,8 +26,8 @@ var accepted = 4;
 Console.WriteLine($"FIXTURE_OUTPUT_REDIRECTED={Console.IsOutputRedirected}");
 Console.WriteLine($"FIXTURE_CONSOLE_VISIBLE={Native.IsWindowVisible(Native.GetConsoleWindow())}");
 Console.WriteLine($"FIXTURE_MINER_PID={Environment.ProcessId}");
-for (var i = 0; i < 4; i++) Console.WriteLine("\u001b[32mGPU0[t0] share accepted [ 213ms ][pearlhash][0]\u001b[0m");
-Console.Error.WriteLine("GPU0[t0] share rejected [ 10ms ][pearlhash][0]");
+for (var i = 0; i < 4; i++) Console.WriteLine("\u001b[32mGPU0[t0] share accepted [ 100ms ][testhash][0]\u001b[0m");
+Console.Error.WriteLine("GPU0[t0] share rejected [ 10ms ][testhash][0]");
 Console.WriteLine("ID Name Hashrate Power Eff Fan Temp CClk MClk A R HW");
 Console.WriteLine("#0 Integration Fixture GPU 1.234 MH/s 100W 0.012 50% 60C 2000 9000 4 1 0");
 var outputTask = Task.Run(async () =>
@@ -43,9 +43,9 @@ var outputTask = Task.Run(async () =>
                 if (!File.Exists(trigger)) continue;
                 File.Delete(trigger);
                 if (kind == "api-accepted") { Interlocked.Increment(ref accepted); continue; }
-                if (kind == "flush-accepted") { Console.WriteLine("GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE"); continue; }
+                if (kind == "flush-accepted") { Console.WriteLine("GPU0[t0] share accepted [777ms] [testhash][0] DELAYED_FIXTURE"); continue; }
                 if (kind == "accepted") Interlocked.Increment(ref accepted);
-                Console.WriteLine("GPU0[t0] share " + kind + " [ 213ms ][pearlhash][0]");
+                Console.WriteLine("GPU0[t0] share " + kind + " [ 100ms ][testhash][0]");
             }
         }
     }
@@ -64,7 +64,7 @@ try
         {
             miner_version = "integration-fixture", mining_time = (DateTimeOffset.UtcNow - started).TotalSeconds,
             gpu_devices = new[] { new { device_id = 0, bus_id = 1, name = "Integration Fixture GPU" } },
-            algorithms = new[] { new { name = "pearlhash", hashrate = new { now = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 10000, gpu = new { gpu0 = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 10000 } }, shares = new { accepted = args.Contains("--fixture-no-share-api") ? (int?)null : Volatile.Read(ref accepted), rejected = args.Contains("--fixture-no-share-api") ? (int?)null : 1 } } }
+            algorithms = new[] { new { name = "testhash", hashrate = new { now = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 10000, gpu = new { gpu0 = 1234000 + (int)(DateTimeOffset.UtcNow - started).TotalSeconds * 10000 } }, shares = new { accepted = args.Contains("--fixture-no-share-api") ? (int?)null : Volatile.Read(ref accepted), rejected = args.Contains("--fixture-no-share-api") ? (int?)null : 1 } } }
         });
         var bytes = Encoding.UTF8.GetBytes(json);
         await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bytes.Length}\r\nConnection: close\r\n\r\n"), lifetime.Token);

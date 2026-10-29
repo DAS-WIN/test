@@ -6,8 +6,8 @@
     { "device_id": 0, "bus_id": 1 }
   ],
   "algorithms": [{
-    "name": "pearlhash",
-    "hashrate": { "now": 302910000000000, "gpu": { "gpu2": 100000000000000, "gpu0": 202910000000000, "total": 302910000000000 } },
+    "name": "testhash",
+    "hashrate": { "now": 3000000, "gpu": { "gpu2": 1000000, "gpu0": 2000000, "total": 3000000 } },
     "shares": { "accepted": 16, "rejected": 1 }
   }]
 }

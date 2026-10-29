@@ -70,6 +70,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string SettingsFooterHint => "更新間隔與異常重啟選項儲存後立即套用；BAT 變更在啟動或重啟後套用。";
     public string Status => _controller.IsTransitioning ? "礦工處理中" : _controller.IsRunning ? (_apiHealthy ? "BAT 運行中 · API 已連線" : "BAT 運行中 · 等待 API") : _apiHealthy ? "外部礦工 · 僅監控" : "礦工已停止";
     public string RigTitle => MonitoringSettings.RigName + " / " + (_snapshot?.Algorithm ?? "等待演算法資訊");
+    public string AppVersion => $"v{typeof(MainViewModel).Assembly.GetName().Version?.ToString(3)} · SRBMiner GUI";
     public string Version => "SRBMiner " + (_snapshot?.Version ?? "—") + "  ·  BAT 監控";
     public string Uptime => Display.Uptime(_snapshot?.UptimeSeconds);
     public string LastUpdate => _snapshot?.Timestamp.ToLocalTime().ToString("HH:mm:ss") ?? "—";

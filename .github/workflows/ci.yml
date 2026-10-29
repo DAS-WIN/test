@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - run: ./scripts/Verify-ReleaseContent.ps1
+        shell: pwsh
       - run: dotnet build SrbMinerMonitor.slnx -c Release
       - run: ./scripts/Smoke-Windows.ps1
         shell: pwsh
@@ -32,7 +34,7 @@ jobs:
         shell: pwsh
       - run: ./scripts/Verify-PublishedStartup.ps1
         shell: pwsh
-      - name: Publish verified private prerelease
+      - name: Publish verified release
         if: github.event_name == 'push' && github.ref == 'refs/heads/feature/bat-monitoring'
         run: ./scripts/Publish-GitHubRelease.ps1
         shell: pwsh

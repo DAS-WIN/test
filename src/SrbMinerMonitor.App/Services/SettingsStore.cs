@@ -14,7 +14,7 @@ public sealed class SettingsStore
     public async Task<MinerSettings> LoadAsync()
     {
         if (!File.Exists(FilePath)) return new();
-        // Obsolete form/demo fields from older versions are ignored; the existing BAT path is retained.
+        // Unrecognized JSON fields are ignored when loading settings.
         var settings = JsonSerializer.Deserialize<MinerSettings>(await File.ReadAllTextAsync(FilePath)) ?? throw new FormatException("設定檔內容為空。");
         if (settings.ProtectedBatchContent is { Length: > 0 } encrypted)
             settings = settings with { BatchContent = Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(encrypted), null, DataProtectionScope.CurrentUser)) };

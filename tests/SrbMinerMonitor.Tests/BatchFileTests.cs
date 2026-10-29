@@ -5,8 +5,8 @@ namespace SrbMinerMonitor.Tests;
 
 public sealed class BatchFileTests
 {
-    // Same command/control-flow shape as the user's BAT, with addresses replaced by test placeholders.
-    private const string Script = "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\ntitle Pearl Mining - test\r\nif not exist \"SRBMiner-MULTI.exe\" (\r\n  echo ERROR: SRBMiner-MULTI.exe is missing.\r\n  pause\r\n  exit /b 1\r\n)\r\nif not exist \"logs\" mkdir \"logs\"\r\n\"%~dp0SRBMiner-MULTI.exe\" --algorithm-gpu pearlhash --disable-cpu --gpu-disable-oc --gpu-off-temperature 80 --pool pool.example.com:8048 --tls true --wallet TEST-WALLET.5080 --worker TEA-PC --log-file \"logs\\pearl.log\" --log-file-mode 1\r\npause\r\nendlocal\r\n";
+    // Synthetic BAT fixture covering conditionals, relative paths, and API arguments.
+    private const string Script = "@echo off\r\nsetlocal\r\ncd /d \"%~dp0\"\r\ntitle Mining Fixture\r\nif not exist \"SRBMiner-MULTI.exe\" (\r\n  echo ERROR: SRBMiner-MULTI.exe is missing.\r\n  pause\r\n  exit /b 1\r\n)\r\nif not exist \"logs\" mkdir \"logs\"\r\n\"%~dp0SRBMiner-MULTI.exe\" --algorithm-gpu testhash --disable-cpu --gpu-disable-oc --gpu-off-temperature 80 --pool pool.example.test:4444 --tls true --wallet EXAMPLE-WALLET.worker-01 --worker worker-01 --log-file \"logs\\fixture.log\" --log-file-mode 1\r\npause\r\nendlocal\r\n";
 
     [Fact] public void BatchModeDoesNotRequireFormWalletAlgorithmOrGpu()
     {
@@ -21,7 +21,7 @@ public sealed class BatchFileTests
         Assert.False(result.ApiEnabled); Assert.Null(result.ApiPort);
         Assert.Equal(Path.Combine(Path.GetTempPath(), "SRBMiner-MULTI.exe"), result.Executable);
     }
-    [Fact] public void MonitoringCopyPreservesUsersControlFlowAndMiningArguments()
+    [Fact] public void MonitoringCopyPreservesControlFlowAndMiningArguments()
     {
         var bytes = Encoding.UTF8.GetBytes(Script);
         var original = bytes.ToArray();
@@ -39,7 +39,7 @@ public sealed class BatchFileTests
     }
     [Fact] public void CommentsAndPrintedInstructionsDoNotClaimApiIsEnabled()
     {
-        var info = BatchFileInspector.Inspect("rem --api-enable\n:: --api-enable\necho --api-enable\nSRBMiner-MULTI.exe --pool test:8048", Path.GetTempPath());
+        var info = BatchFileInspector.Inspect("rem --api-enable\n:: --api-enable\necho --api-enable\nSRBMiner-MULTI.exe --pool test:4444", Path.GetTempPath());
         Assert.False(info.ApiEnabled);
     }
     [Fact] public void MultiCommandScriptRequiresManualConfiguration()
