@@ -52,7 +52,7 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
         var startup = new StartupInfoEx { Startup = new StartupInfo { Size = (uint)Marshal.SizeOf<StartupInfoEx>(), Flags = 1, ShowWindow = 0 } };
         var envBlock = Marshal.StringToHGlobalUni(string.Join('\0', environment.Select(p => p.Key + "=" + p.Value)) + "\0\0");
         var initialized = false;
-        var command = new StringBuilder($"\"{cmd}\" /d /v:off /s /c \"\"%SRBM_MONITOR_BATCH_PATH%\" <NUL\"");
+        var command = new StringBuilder($"\"{cmd}\" /d /v:off /s /c \"\"%SRBM_MONITOR_BATCH_PATH%\" <NUL >CONOUT$ 2>&1\"");
         ProcessInformation child = default;
         try
         {
