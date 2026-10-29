@@ -46,6 +46,12 @@ public sealed class AcceptedTelemetryTests
         Assert.Null(h.Window(TimeSpan.FromMinutes(10)).PerMinute);
         Assert.Equal(5, h.Window(TimeSpan.FromMinutes(30)).PerMinute);
     }
+    [Fact] public void TerminalTitleAndColorSequencesDoNotAlterAcceptedText()
+    {
+        var line = "\u001b]0;fixture\u0007\u001b[32mGPU0[t0] share accepted [100ms] [fixture][0]\u001b[0m";
+        Assert.Equal("GPU0[t0] share accepted [100ms] [fixture][0]", MinerOutput.Clean(line));
+        Assert.Equal("成功", MinerOutput.Outcome(line));
+    }
     [Fact] public void CountAtStartAndOutOfOrderTimestampDoNotLoseShares()
     {
         var h = new AcceptedHistory(); h.Begin(Guid.NewGuid(), Start);

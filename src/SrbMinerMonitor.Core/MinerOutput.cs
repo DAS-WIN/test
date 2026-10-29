@@ -14,7 +14,7 @@ public sealed partial class MinerOutput
     public ShareStats ObservedTotal => Max(_total, new(Sum(s => s.Accepted), Sum(s => s.Rejected), Timeout: Sum(s => s.Timeout), HardwareErrors: Sum(s => s.HardwareErrors)));
     private long? Sum(Func<ShareStats, long?> field) => _gpus.Count == 0 || _gpus.Values.Any(s => field(s) is null)
         ? null : _gpus.Values.Sum(s => field(s)!.Value);
-    public static string Clean(string line) => Ansi().Replace(line, "").TrimEnd('\r');
+    public static string Clean(string line) => Ansi().Replace(Osc().Replace(line, ""), "").TrimEnd('\r');
     public void Reset(string? pool = null) { _gpus.Clear(); _total = new(); _api = new(); Pool = pool; _shareTable = false; }
     public void Read(string line)
     {
@@ -64,6 +64,7 @@ public sealed partial class MinerOutput
         static long? M(long? a, long? b) => a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
         return new(M(first?.Accepted, second?.Accepted), M(first?.Rejected, second?.Rejected), M(first?.Stale, second?.Stale), M(first?.Timeout, second?.Timeout), M(first?.HardwareErrors, second?.HardwareErrors));
     }
+    [GeneratedRegex(@"\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)")] private static partial Regex Osc();
     [GeneratedRegex(@"\x1B\[[0-?]*[ -/]*[@-~]")] private static partial Regex Ansi();
     [GeneratedRegex(@"\bGPU\s*#?(\d+)(?:\[t\d+\])?\s+share\s+(accepted|rejected|failed|timeout|timed\s+out)\b", RegexOptions.IgnoreCase)] private static partial Regex Share();
     [GeneratedRegex(@"(?:^|\]\s*)#(\d+)\s+.+?\s+(\d+)\s+(\d+)\s+(\d+)\s*$")] private static partial Regex TableRow();

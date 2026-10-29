@@ -13,6 +13,7 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
 {
     private SafeFileHandle? _job;
     private uint _rootPid;
+    private WindowsPseudoConsole? _console;
     private StreamReader? _output;
     private Task? _pump;
     public bool IsRunning => _job is { IsInvalid: false, IsClosed: false } && ActiveProcesses() > 0;
@@ -40,33 +41,29 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
         var environment = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables()) environment[(string)entry.Key] = (string?)entry.Value ?? "";
         environment["SRBM_MONITOR_BATCH_PATH"] = batch;
-        // A hidden console preserves CTRL_BREAK support. Pipe both streams into the application;
-        // NUL stdin prevents a trailing PAUSE from waiting for an invisible keypress.
-        var security = new SecurityAttributes { Size = (uint)Marshal.SizeOf<SecurityAttributes>(), Inherit = 1 };
-        if (!CreatePipe(out var read, out var write, ref security, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        using var outputWrite = write;
-        using var input = CreateFileW("NUL", 0x80000000, 3, ref security, 3, 0, IntPtr.Zero);
-        if (input.IsInvalid || !SetHandleInformation(read, 1, 0)) { read.Dispose(); throw new Win32Exception(Marshal.GetLastWin32Error()); }
-        _output = new StreamReader(new FileStream(read, FileAccess.Read), Encoding.UTF8, true);
-        var startup = new StartupInfoEx { Startup = new StartupInfo { Size = (uint)Marshal.SizeOf<StartupInfoEx>(), Flags = 0x101, ShowWindow = 0,
-            StdInput = input.DangerousGetHandle(), StdOutput = write.DangerousGetHandle(), StdError = write.DangerousGetHandle() } };
+        _console = new WindowsPseudoConsole();
+        _output = _console.Output;
+        var reader = _output;
+        _pump = Task.Run(() =>
+        {
+            try { while (reader.ReadLine() is { } line) if (line.Length > 0) Log?.Invoke(line); }
+            catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+        });
+        var startup = new StartupInfoEx { Startup = new StartupInfo { Size = (uint)Marshal.SizeOf<StartupInfoEx>(), Flags = 1, ShowWindow = 0 } };
         var envBlock = Marshal.StringToHGlobalUni(string.Join('\0', environment.Select(p => p.Key + "=" + p.Value)) + "\0\0");
-        var handles = Marshal.AllocHGlobal(2 * IntPtr.Size);
         var initialized = false;
-        var command = new StringBuilder($"\"{cmd}\" /d /v:off /s /c \"\"%SRBM_MONITOR_BATCH_PATH%\"\"");
+        var command = new StringBuilder($"\"{cmd}\" /d /v:off /s /c \"\"%SRBM_MONITOR_BATCH_PATH%\" <NUL\"");
         ProcessInformation child = default;
         try
         {
-            // Restrict inherited handles so another process cannot retain our output pipe.
+            // Attach only the child to a pseudoconsole; the GUI never joins its console.
             nuint attributeSize = 0;
             InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeSize);
             startup.Attributes = Marshal.AllocHGlobal(checked((int)attributeSize));
             if (!InitializeProcThreadAttributeList(startup.Attributes, 1, 0, ref attributeSize)) throw new Win32Exception(Marshal.GetLastWin32Error());
             initialized = true;
-            Marshal.WriteIntPtr(handles, input.DangerousGetHandle());
-            Marshal.WriteIntPtr(handles, IntPtr.Size, write.DangerousGetHandle());
-            if (!UpdateProcThreadAttribute(startup.Attributes, 0, (IntPtr)0x20002, handles, (nuint)(2 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
-            if (!CreateProcessW(cmd, command, IntPtr.Zero, IntPtr.Zero, true, 0x4 | 0x10 | 0x200 | 0x400 | 0x80000,
+            if (!UpdateProcThreadAttribute(startup.Attributes, 0, (IntPtr)0x20016, _console.Handle, (nuint)IntPtr.Size, IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!CreateProcessW(cmd, command, IntPtr.Zero, IntPtr.Zero, false, 0x4 | 0x200 | 0x400 | 0x80000,
                 envBlock, Path.GetDirectoryName(batch)!, ref startup, out child)) throw new Win32Exception(Marshal.GetLastWin32Error());
             if (!AssignProcessToJobObject(_job, child.Process))
             {
@@ -77,31 +74,23 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
             _rootPid = child.ProcessId;
             if (ResumeThread(child.Thread) == uint.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
         }
-        catch { _job.Dispose(); _job = null; _output.Dispose(); _output = null; throw; }
+        catch { _job.Dispose(); _job = null; _console.Dispose(); _console = null; _output.Dispose(); _output = null; throw; }
         finally
         {
             Marshal.FreeHGlobal(envBlock);
-            Marshal.FreeHGlobal(handles);
             if (initialized) DeleteProcThreadAttributeList(startup.Attributes);
             if (startup.Attributes != IntPtr.Zero) Marshal.FreeHGlobal(startup.Attributes);
             if (child.Thread != IntPtr.Zero) CloseHandle(child.Thread);
             if (child.Process != IntPtr.Zero) CloseHandle(child.Process);
         }
-        outputWrite.Dispose();
-        var reader = _output;
-        _pump = Task.Run(() =>
-        {
-            try { while (reader.ReadLine() is { } line) if (line.Length > 0) Log?.Invoke(line); }
-            catch (Exception e) when (e is IOException or ObjectDisposedException) { }
-        });
-        Log?.Invoke("已在背景啟動指定 BAT，輸出顯示於應用程式；正在等待本機 API。");
+        Log?.Invoke("已透過背景虛擬主控台啟動 BAT，即時輸出整合於應用程式；正在等待本機 API。");
         await Task.Delay(800, ct);
         if (!IsRunning) throw new InvalidOperationException("BAT 與其子程序已退出。請查看應用程式內的礦工輸出與事件紀錄。");
     }
 
     public async Task StopAsync(CancellationToken ct)
     {
-        if (!IsRunning) return;
+        if (!IsRunning) { await CloseConsoleAsync(); return; }
         var groups = ProcessIds().Append(_rootPid);
         if (!await ConsoleStopSignal.SendAsync(groups)) Log?.Invoke("正常停止訊號未送達，將等待後終止受管理的礦工；監控程式保持運行。");
         var watch = Stopwatch.StartNew();
@@ -114,8 +103,15 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
             while (IsRunning && watch.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(100, CancellationToken.None);
         }
         if (IsRunning) throw new InvalidOperationException("BAT 仍有子程序未退出，禁止啟動第二個礦工。");
-        if (_pump is not null) await _pump.WaitAsync(TimeSpan.FromSeconds(3), CancellationToken.None);
+        await CloseConsoleAsync();
         ct.ThrowIfCancellationRequested();
+    }
+    private async Task CloseConsoleAsync()
+    {
+        var console = _console; _console = null;
+        // ClosePseudoConsole can wait for terminal output; keep the reader running concurrently.
+        if (console is not null) await Task.Run(console.Dispose).WaitAsync(TimeSpan.FromSeconds(5));
+        if (_pump is not null) await _pump.WaitAsync(TimeSpan.FromSeconds(3));
     }
     private uint ActiveProcesses()
     {
@@ -139,7 +135,7 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
         }
         finally { Marshal.FreeHGlobal(memory); }
     }
-    public void Dispose() { _job?.Dispose(); _job = null; _output?.Dispose(); _output = null; }
+    public void Dispose() { _job?.Dispose(); _job = null; _console?.Dispose(); _console = null; _output?.Dispose(); _output = null; }
 
     [StructLayout(LayoutKind.Sequential)] private struct BasicLimits { public long PerProcess, PerJob; public uint LimitFlags; public UIntPtr MinWorkingSet, MaxWorkingSet; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass, SchedulingClass; }
     [StructLayout(LayoutKind.Sequential)] private struct IoCounters { public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes; }

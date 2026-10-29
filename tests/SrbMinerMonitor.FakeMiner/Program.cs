@@ -38,11 +38,17 @@ var outputTask = Task.Run(async () =>
         while (!lifetime.IsCancellationRequested)
         {
             await Task.Delay(100, lifetime.Token);
-            foreach (var kind in new[] { "accepted", "rejected", "timeout", "api-accepted", "flush-accepted", "difficulty" })
+            foreach (var kind in new[] { "accepted", "rejected", "timeout", "api-accepted", "flush-accepted", "difficulty", "crt-accepted" })
             {
                 var trigger = Path.Combine(Environment.CurrentDirectory, "fixture-" + kind);
                 if (!File.Exists(trigger)) continue;
                 File.Delete(trigger);
+                if (kind == "crt-accepted")
+                {
+                    Interlocked.Increment(ref accepted);
+                    Native.printf("GPU0[t0] share accepted [100ms] [fixture][0] LIVE_CRT_FIXTURE\n");
+                    continue;
+                }
                 if (kind == "difficulty") { Console.WriteLine("Job received [fixture] block height 1 [diff: 2000] [fixture][0]"); continue; }
                 if (kind == "api-accepted") { Interlocked.Increment(ref accepted); continue; }
                 if (kind == "flush-accepted") { Console.WriteLine("GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE"); continue; }
@@ -78,6 +84,8 @@ return 0;
 
 internal static class Native
 {
+    [DllImport("ucrtbase.dll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int printf([MarshalAs(UnmanagedType.LPStr)] string format);
     [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool IsWindowVisible(IntPtr window);
 }

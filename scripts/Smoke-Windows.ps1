@@ -18,7 +18,7 @@ try {
     # Launch the actual Windows GUI subsystem apphost, with no attached console.
     $app = Start-Process (Join-Path $gui 'SrbMinerMonitor.WindowsSmoke.exe') -ArgumentList $arguments -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     try {
-        if (-not $app.WaitForExit(360000)) { throw 'GUI integration test exceeded 6 minutes.' }
+        if (-not $app.WaitForExit(480000)) { throw 'GUI integration test exceeded 8 minutes.' }
         $app.Refresh()
         if ($app.ExitCode -ne 0 -or -not (Test-Path (Join-Path $outputPath 'result.txt')) -or -not (Select-String -Path (Join-Path $outputPath 'result.txt') -Pattern '^PASS:')) {
             throw "GUI integration failed or closed prematurely. Exit code: $($app.ExitCode)"

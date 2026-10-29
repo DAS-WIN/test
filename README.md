@@ -1,4 +1,4 @@
-# SRBMiner Monitor 0.1.9
+# SRBMiner Monitor 0.2.1
 
 繁體中文 Windows 桌面監控程式，使用自己的 SRBMiner BAT 啟動礦工。深灰／青藍介面包含總覽、挖礦設定與事件紀錄；本版已移除示範模式，以及演算法、錢包、GPU 等表單啟動方式。
 
@@ -58,7 +58,7 @@ pwsh ./scripts/Publish-Windows.ps1
 
 若無法啟動，執行 `Start-Diagnostics.cmd`，查看 `%LOCALAPPDATA%\SRBMiner Monitor\Logs\startup-*.log`，無法寫入時改用 `%TEMP%`。升級時先停止舊版並完整解壓新版到新資料夾，不要只替換 EXE。
 
-Windows 整合測試使用不挖礦、不連礦池的測試程序。真實 Windows 11／RTX 5080 的接受結果需實機試跑。詳見 [版本變更](docs/RELEASE-NOTES-0.1.9.md)、[資料來源](docs/DATA-SOURCES.md) 與 [驗證說明](docs/VERIFICATION.md)。
+Windows 整合測試使用不挖礦、不連礦池的測試程序。真實 Windows 11／RTX 5080 的接受結果需實機試跑。詳見 [版本變更](docs/RELEASE-NOTES-0.2.1.md)、[資料來源](docs/DATA-SOURCES.md) 與 [驗證說明](docs/VERIFICATION.md)。
 
 挖礦設定新增「礦工非預期退出後自動重啟」（預設關閉），儲存即套用。單獨啟用時意外退出後等待 10 秒重啟，無須定時排程；兩者同時啟用時以排程等待時間為準。手動停止會取消待重啟，GUI 重開不自動挖礦。自動重啟使用目前運行的 BAT 設定，僅儲存而未套用的 BAT 變更不會被自動啟動。
 
@@ -73,4 +73,6 @@ Windows 整合測試使用不挖礦、不連礦池的測試程序。真實 Windo
 
 預設位置：%LOCALAPPDATA%\\SRBMiner Monitor\\MiningLogs。這些檔案在停止、重啟與重新開啟程式後保留，不會自動刪除。平均數只統計目前礦工階段，不從舊 Log 回讀。
 
-僅增加此版本功能；程序管理、自動重啟、BAT 設定與介面均以 0.1.8 為基礎。請先結束舊版，再完整解壓縮 0.1.9。
+僅增加此版本功能；程序管理、自動重啟、BAT 設定與介面均以 0.1.8 為基礎。請先結束舊版，再完整解壓縮 0.2.1。
+
+成功分享即時輸出改由 ConPTY 虛擬主控台擷取，避免 stdout 被當成普通檔案／管線而緩衝。需要 Windows 10 1809 或以上版本。礦工明確延後寫出的訊息，仍只能在實際輸出後收到。

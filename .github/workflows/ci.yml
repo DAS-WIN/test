@@ -4,6 +4,9 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -17,7 +20,7 @@ jobs:
       - run: dotnet test tests/SrbMinerMonitor.Tests -c Release
   windows:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:

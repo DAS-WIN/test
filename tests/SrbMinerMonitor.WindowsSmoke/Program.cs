@@ -165,7 +165,7 @@ internal static class Program
             if (vm.TotalAccepted != "4" || vm.Rejected != "1" || vm.Pool != "fixture.example:8048") throw new InvalidOperationException("Output shares or BAT pool missing: " + vm.TotalAccepted + " / " + vm.Pool);
             vm.SelectedGpu = vm.Gpus[0];
             if (vm.Accepted != "4" || vm.Acceptance != "80.0 %") throw new InvalidOperationException("Selected GPU hides accepted shares: " + vm.Accepted);
-            if (!vm.MinerOutputText.Contains("FIXTURE_OUTPUT_REDIRECTED=True") || vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=True") || !vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=False")) throw new InvalidOperationException("Miner output must be redirected with its console hidden.");
+            if (!vm.MinerOutputText.Contains("FIXTURE_OUTPUT_REDIRECTED=False") || vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=True") || !vm.MinerOutputText.Contains("FIXTURE_CONSOLE_VISIBLE=False")) throw new InvalidOperationException("Miner must have hidden live console output.");
             if (vm.RecentShares.Count() != 3 || vm.RecentShares.Any(e => !e.Message.Contains("share accepted"))) throw new InvalidOperationException("Green accepted events missing from application.");
             await render("accepted-background-miner");
             Console.WriteLine("PASS: user-shaped BAT -> hidden console -> captured output -> accepted=4, selected GPU=4, rejected=1, acceptance=80%, configured pool.");
@@ -277,6 +277,12 @@ internal static class Program
         if (!vm.AcceptedAverage10m.Contains("新增 6 筆") || !vm.AcceptedAverage30m.Contains("涵蓋") || !vm.AcceptedAverage1h.Contains("筆／分鐘"))
             throw new InvalidOperationException("Accepted rolling averages are missing actual coverage.");
         await render("accepted-averages-and-mining-log");
+        await File.WriteAllTextAsync(Path.Combine(directory, "fixture-crt-accepted"), "go");
+        deadline = DateTimeOffset.Now.AddSeconds(2);
+        while (!vm.RecentShares.Any(e => e.Message.Contains("LIVE_CRT_FIXTURE")) && DateTimeOffset.Now < deadline) await Task.Delay(20);
+        if (!vm.RecentShares.Any(e => e.Message.Contains("LIVE_CRT_FIXTURE")))
+            throw new InvalidOperationException("Native CRT stdout buffered an accepted share; live console output must reach the UI within 2 seconds without fflush.");
+        Console.WriteLine("PASS: native CRT printf accepted reaches recent shares within 2 seconds through the pseudoconsole without explicit flush; GUI has no console.");
         Console.WriteLine("PASS: 10m/30m/1h accepted averages; actual coverage; hardware log; immediate accepted log without duplicate API/output counts; current pool difficulty 1000 -> 2000 logged independently of daily hardware.");
 
         vm.Settings.RefreshValue = "2"; vm.Settings.RefreshUnit = "秒";
