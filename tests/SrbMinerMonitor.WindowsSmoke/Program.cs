@@ -284,7 +284,9 @@ internal static class Program
         deadline = DateTimeOffset.Now.AddSeconds(2);
         while (!vm.RecentShares.Any(e => e.Message.Contains("LIVE_CRT_FIXTURE")) && DateTimeOffset.Now < deadline) await Task.Delay(20);
         if (!vm.RecentShares.Any(e => e.Message.Contains("LIVE_CRT_FIXTURE")))
-            throw new InvalidOperationException("Native CRT stdout buffered an accepted share; live console output must reach the UI within 2 seconds without fflush.");
+            throw new InvalidOperationException("Native CRT stdout was not delivered within 2 seconds without fflush. Terminal: " + vm.MinerOutputText);
+        if (!vm.MinerOutputText.Contains("NATIVE_CRT_TTY=64") && !vm.MinerOutputText.Contains("NATIVE_CRT_TTY=1"))
+            throw new InvalidOperationException("Native child CRT stdout is not a terminal: " + vm.MinerOutputText);
         Console.WriteLine("PASS: native CRT printf accepted reaches recent shares within 2 seconds through the pseudoconsole without explicit flush; GUI has no console.");
         Console.WriteLine("PASS: 10m/30m/1h accepted averages; actual coverage; hardware log; immediate accepted log without duplicate API/output counts; current pool difficulty 1000 -> 2000 logged independently of daily hardware.");
 

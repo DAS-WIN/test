@@ -46,7 +46,8 @@ var outputTask = Task.Run(async () =>
                 if (kind == "crt-accepted")
                 {
                     Interlocked.Increment(ref accepted);
-                    Native.printf("GPU0[t0] share accepted [100ms] [fixture][0] LIVE_CRT_FIXTURE\n");
+                    _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                        Path.Combine(AppContext.BaseDirectory, "NativeConsoleFixture.exe")) { UseShellExecute = false, CreateNoWindow = false });
                     continue;
                 }
                 if (kind == "difficulty") { Console.WriteLine("Job received [fixture] block height 1 [diff: 2000] [fixture][0]"); continue; }
@@ -84,8 +85,6 @@ return 0;
 
 internal static class Native
 {
-    [DllImport("ucrtbase.dll", CallingConvention = CallingConvention.Cdecl)]
-    public static extern int printf([MarshalAs(UnmanagedType.LPStr)] string format);
     [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool IsWindowVisible(IntPtr window);
 }
