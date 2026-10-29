@@ -32,3 +32,13 @@ BAT 以暫停狀態建立，先加入 Windows Job 再恢復，確保子程序不
 API 請求與硬體查詢序列化執行。分享計數、輸出文字與硬體採樣分開更新；同一份硬體快照供總覽卡片、GPU 列及趨勢使用。新程序以獨立 session 重設計數及圖表分界，斷線不補造樣本。
 
 設定以暫存檔寫入後替換。貼上 BAT 的內容以 Windows DPAPI 保護，運行期間的暫存 BAT 在停止後清理。程式重新開啟時載入設定，不自行啟動礦工或排程。
+
+## 礦工轉接器架構
+
+`MinerAdapterRegistry` 提供礦工清單；`IMinerAdapter` 檢查設定並產生啟動計畫；`MinerProcess` 執行計畫並管理 Job 與暫存檔。SRBMiner 的 API、BAT 與輸出解析集中於 `Adapters/SrbMiner` 與 `SrbMinerAdapter`。
+
+`MonitoringService` 建立獨立 `IMinerMonitorSession`，處理資料階段、API、分享及硬體採樣。`MainViewModel` 僅消費統一資料。裝置模型允許 CPU/GPU，演算法集合保留速率單位；不同演算法不相加。NVIDIA 感測資料由獨立 provider 補充，完整 PCI 位址優先，只有 bus 時必須對應唯一。
+
+設定 schema 1 增加 MinerId 與 AdapterSettings。舊設定第一次寫入新版前保存 settings.json.v0.2.0.bak；未知礦工、較新 schema、無法解密或損毀設定不允許覆寫。原組件名稱及本機路徑沿用。
+
+新增礦工流程見 [轉接器開發指南](ADDING-MINERS.md)。

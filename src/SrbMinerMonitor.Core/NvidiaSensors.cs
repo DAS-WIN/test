@@ -3,7 +3,7 @@ using System.Globalization;
 
 namespace SrbMinerMonitor.Core;
 
-public sealed record NvidiaSensor(int Bus, string Name, double? Power, double? Fan, double? Temperature, double? Core, double? Memory);
+public sealed record NvidiaSensor(int Bus, string Name, double? Power, double? Fan, double? Temperature, double? Core, double? Memory, string? PciAddress = null);
 
 public static class NvidiaSensors
 {
@@ -38,17 +38,31 @@ public static class NvidiaSensors
             var pci = cols[0].Split(':');
             if (pci.Length != 3 || !int.TryParse(pci[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var bus)) continue;
             double? N(int i) => double.TryParse(cols[i], NumberStyles.Float, CultureInfo.InvariantCulture, out var n) && double.IsFinite(n) && n >= 0 ? n : null;
-            result.Add(new(bus, cols[1], N(2), N(3), N(4), N(5), N(6)));
+            result.Add(new(bus, cols[1], N(2), N(3), N(4), N(5), N(6), cols[0]));
         }
         return result;
+    }
+    private static string? NormalizePci(string? value)
+    {
+        if (value is null) return null;
+        var parts = value.Split(':');
+        return parts.Length == 3 && uint.TryParse(parts[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var domain)
+            ? $"{domain:x4}:{parts[1].ToLowerInvariant()}:{parts[2].ToLowerInvariant()}" : value.ToLowerInvariant();
     }
     public static MinerSnapshot Merge(MinerSnapshot snapshot, IReadOnlyDictionary<int, int> buses, IReadOnlyList<NvidiaSensor> sensors) =>
         snapshot with { Gpus = snapshot.Gpus.Select(g =>
         {
-            if (!buses.TryGetValue(g.Id, out var bus)) return g;
-            var matches = sensors.Where(s => s.Bus == bus).ToArray();
+            if (g.Kind != DeviceKind.Gpu) return g;
+            NvidiaSensor[] matches;
+            if (g.PciAddress is not null)
+                matches = sensors.Where(s => NormalizePci(s.PciAddress) == NormalizePci(g.PciAddress)).ToArray();
+            else
+            {
+                if (!buses.TryGetValue(g.Id, out var bus) || buses.Values.Count(b => b == bus) != 1) return g;
+                matches = sensors.Where(s => s.Bus == bus).ToArray();
+            }
             if (matches.Length != 1) return g;
             var s = matches[0];
-            return g with { Name = s.Name, Power = s.Power, Fan = s.Fan, Temperature = s.Temperature, CoreClock = s.Core, MemoryClock = s.Memory };
+            return g with { Name = s.Name, PciAddress = s.PciAddress, Power = s.Power, Fan = s.Fan, Temperature = s.Temperature, CoreClock = s.Core, MemoryClock = s.Memory };
         }).ToArray() };
 }

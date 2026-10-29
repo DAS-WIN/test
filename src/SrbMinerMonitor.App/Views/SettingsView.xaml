@@ -6,6 +6,10 @@
   <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,0,8,0">
    <TextBlock Text="挖礦設定" FontSize="23" FontWeight="SemiBold"/><TextBlock Text="使用自己的 BAT 啟動礦工，所有挖礦參數都以 BAT 內容為準。" Style="{StaticResource Muted}" Margin="0,8,0,20"/>
    <Border Style="{StaticResource Panel}" Margin="0,0,0,18"><StackPanel>
+    <TextBlock Text="挖礦程式" Style="{StaticResource SectionTitle}"/>
+    <ComboBox x:Name="MinerSelector" ItemsSource="{Binding Settings.Miners}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding Settings.MinerId}" Width="240" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+    <TextBlock Text="{Binding Settings.UnsupportedHint}" TextWrapping="Wrap"/>
+    <ContentControl Content="{Binding Settings.AdapterOptions}" Margin="0,0,0,12"/>
     <TextBlock Text="指定 BAT" Style="{StaticResource SectionTitle}"/>
     <ComboBox x:Name="BatchModeSelector" ItemsSource="{Binding Settings.BatchModes}" SelectedItem="{Binding Settings.BatchInputMode}" Width="240" HorizontalAlignment="Left"/>
     <StackPanel Visibility="{Binding Settings.IsExistingBatch, Converter={StaticResource BoolVisibility}}" Margin="0,16,0,0">
@@ -17,7 +21,7 @@
     <StackPanel Visibility="{Binding Settings.IsPastedBatch, Converter={StaticResource BoolVisibility}}" Margin="0,16,0,0">
      <TextBlock Text="礦工資料夾" Style="{StaticResource Muted}" Margin="0,0,0,7"/>
      <DockPanel><Button Content="選擇資料夾…" Command="{Binding BrowseDirectoryCommand}" DockPanel.Dock="Right" Margin="10,0,0,0"/><TextBox Text="{Binding Settings.BatchDirectory, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
-     <TextBlock Text="選擇 SRBMiner-MULTI.exe 所在資料夾，讓 %~dp0 與 logs 等相對路徑正常運作。" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,12" FontSize="11"/>
+     <TextBlock Text="選擇所選礦工程式所在資料夾，讓 %~dp0 與 logs 等相對路徑正常運作。" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,12" FontSize="11"/>
      <TextBlock Text="貼上自己的 BAT 內容" Style="{StaticResource Muted}" Margin="0,0,0,7"/>
      <TextBox x:Name="BatchContentEditor" Text="{Binding Settings.BatchContent, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" AcceptsTab="True" Height="270" FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
      <TextBlock Text="啟動時自動補上監控 API 參數，其餘挖礦參數保留；礦工在背景執行。" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,10,0,0"/>

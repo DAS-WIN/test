@@ -15,7 +15,7 @@ public sealed class SettingsStore
     {
         if (!File.Exists(FilePath)) return new();
         // Unrecognized JSON fields are ignored when loading settings.
-        var settings = JsonSerializer.Deserialize<MinerSettings>(await File.ReadAllTextAsync(FilePath)) ?? throw new FormatException("設定檔內容為空。");
+        var settings = SettingsFormat.Read(await File.ReadAllTextAsync(FilePath));
         if (settings.ProtectedBatchContent is { Length: > 0 } encrypted)
             settings = settings with { BatchContent = Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(encrypted), null, DataProtectionScope.CurrentUser)) };
         return settings;
@@ -25,8 +25,19 @@ public sealed class SettingsStore
         await _writes.WaitAsync();
         try
         {
+            SettingsFormat.EnsureSupported(settings);
+            if (File.Exists(FilePath))
+            {
+                // Validate and decrypt the original before any write; failures preserve it.
+                _ = await LoadAsync();
+                var original = await File.ReadAllTextAsync(FilePath);
+                if (SettingsFormat.NeedsMigration(original) && !File.Exists(FilePath + ".v0.2.0.bak"))
+                    File.Copy(FilePath, FilePath + ".v0.2.0.bak", false);
+            }
             Directory.CreateDirectory(DirectoryPath);
-            var encrypted = string.IsNullOrEmpty(settings.BatchContent) ? null : Convert.ToBase64String(
+            var encrypted = string.IsNullOrEmpty(settings.BatchContent) ? null : settings.ProtectedBatchContent;
+            if (!string.IsNullOrEmpty(settings.BatchContent) && (encrypted is null || !Encoding.UTF8.GetBytes(settings.BatchContent).AsSpan().SequenceEqual(ProtectedData.Unprotect(Convert.FromBase64String(encrypted), null, DataProtectionScope.CurrentUser))))
+                encrypted = Convert.ToBase64String(
                 ProtectedData.Protect(Encoding.UTF8.GetBytes(settings.BatchContent), null, DataProtectionScope.CurrentUser));
             var json = JsonSerializer.Serialize(settings with { ProtectedBatchContent = encrypted }, new JsonSerializerOptions { WriteIndented = true });
             var temp = FilePath + ".tmp"; await File.WriteAllTextAsync(temp, json); File.Move(temp, FilePath, true);

@@ -8,10 +8,10 @@ public static class Display
         ? TimeSpan.FromSeconds(Math.Min(value, TimeSpan.MaxValue.TotalSeconds / 2)).ToString(@"d' 天 'hh\:mm\:ss", CultureInfo.InvariantCulture) : "—";
     public static string Number(double? value, string unit = "", string format = "0.0") =>
         value is double n && double.IsFinite(n) ? $"{n.ToString(format, CultureInfo.InvariantCulture)}{(unit.Length > 0 ? " " + unit : "")}" : "—";
-    public static string Hash(double? value, bool efficiency = false, double? unitReference = null)
+    public static string Hash(double? value, bool efficiency = false, double? unitReference = null, string baseUnit = "H/s")
     {
         if (value is not double v || !double.IsFinite(v)) return "—";
-        string[] units = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s"];
+        string[] units = [baseUnit, "k" + baseUnit, "M" + baseUnit, "G" + baseUnit, "T" + baseUnit, "P" + baseUnit];
         var i = 0;
         var reference = unitReference ?? v;
         while (Math.Abs(reference) >= 1000 && i < units.Length - 1) { v /= 1000; reference /= 1000; i++; }

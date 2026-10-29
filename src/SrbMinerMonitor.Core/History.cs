@@ -18,7 +18,8 @@ public sealed class MetricHistory
         if (samples.Count == 0) return (null, TimeSpan.Zero);
         // Averages belong to the latest session. No synthetic values are inserted during outages.
         var session = samples[^1].Session;
-        var values = samples.Where(s => s.Session == session).Select(s =>
+        var algorithm = samples[^1].Algorithm; var unit = samples[^1].RateUnit;
+        var values = samples.Where(s => s.Session == session && s.Algorithm == algorithm && s.RateUnit == unit).Select(s =>
             (s.Timestamp, Value: gpu is int id ? s.Gpus.FirstOrDefault(g => g.Id == id)?.Hashrate : s.TotalHashrate))
             .Where(s => s.Value.HasValue).ToArray();
         return values.Length == 0 ? (null, TimeSpan.Zero) : (values.Average(s => s.Value), values[^1].Timestamp - values[0].Timestamp);

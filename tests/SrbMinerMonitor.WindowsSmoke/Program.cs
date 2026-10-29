@@ -45,6 +45,8 @@ internal static class Program
         {
             try
             {
+                await VerifySettingsMigration(output);
+                if (vm.Settings.Miners.Count != 1 || vm.Settings.Miners[0].Id != "srbminer") throw new InvalidOperationException("Registry must expose only implemented miners.");
                 if (vm.Settings.RefreshValue != "1" || vm.Settings.RefreshUnit != "分" || !vm.Settings.RefreshUnits.SequenceEqual(new[] { "秒", "分", "時", "天" })) throw new InvalidOperationException("Refresh interval must default to one minute with four units.");
                 if (vm.Gpus.Count != 0 || vm.Hashrate != "—") throw new InvalidOperationException("Startup must be empty; no demonstration data or automatic mining.");
                 if (vm.Settings.RestartOnUnexpectedExit) throw new InvalidOperationException("Unexpected-exit recovery must default to off.");
@@ -134,6 +136,35 @@ internal static class Program
         while ((vm.IsBusy || command is AsyncCommand { IsExecuting: true }) && DateTimeOffset.Now < until) await Task.Delay(50);
         if (vm.IsBusy || command is AsyncCommand { IsExecuting: true }) throw new TimeoutException("UI command did not complete.");
     }
+    private static async Task VerifySettingsMigration(string output)
+    {
+        var directory = Path.Combine(output, "migration-settings");
+        Directory.CreateDirectory(directory);
+        var store = new SettingsStore(directory);
+        var content = "SRBMiner-MULTI.exe --wallet EXAMPLE";
+        await store.SaveAsync(new MinerSettings { BatchContent = content, UsePastedBatch = true });
+        var path = Path.Combine(directory, "settings.json");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
+        var encrypted = node["ProtectedBatchContent"]!.GetValue<string>();
+        node.Remove("SchemaVersion"); node.Remove("MinerId");
+        var legacy = node.ToJsonString(); await File.WriteAllTextAsync(path, legacy);
+        var loaded = await store.LoadAsync();
+        if (loaded.MinerId != "srbminer" || loaded.BatchContent != content) throw new InvalidOperationException("Legacy migration did not restore protected BAT.");
+        await store.SaveAsync(loaded);
+        if (await File.ReadAllTextAsync(path + ".v0.2.0.bak") != legacy) throw new InvalidOperationException("Legacy backup changed.");
+        var migrated = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
+        if (migrated["ProtectedBatchContent"]!.GetValue<string>() != encrypted) throw new InvalidOperationException("Unmodified DPAPI ciphertext must be retained.");
+        foreach (var invalid in new[] { "{", "{\"SchemaVersion\":2}", "{\"MinerId\":\"unsupported\"}", "{\"ProtectedBatchContent\":\"invalid\"}" })
+        {
+            await File.WriteAllTextAsync(path, invalid);
+            var failed = false;
+            try { await store.SaveAsync(new()); } catch { failed = true; }
+            if (!failed || await File.ReadAllTextAsync(path) != invalid) throw new InvalidOperationException("Unsupported or damaged settings were overwritten.");
+        }
+        Directory.Delete(directory, true);
+        Console.WriteLine("PASS: legacy migration, DPAPI ciphertext, backup and invalid setting preservation.");
+    }
+
     private static async Task VerifyBatchLifecycle(MainViewModel vm, string executable, string output, Func<string, Task> render)
     {
         var directory = Path.Combine(Path.GetTempPath(), "SRBM-BAT-" + Guid.NewGuid().ToString("N"), "BAT 測試 & %SRBM_UNEXPANDED% !");
@@ -182,14 +213,14 @@ internal static class Program
             // Paste the same script; API is inserted automatically and the temporary BAT uses the miner folder.
             vm.Settings.BatchInputMode = vm.Settings.BatchModes[1]; vm.Settings.BatchContent = batchScript; vm.Settings.BatchDirectory = directory;
             await Execute(vm, vm.SaveRestartCommand); await WaitForApi(vm);
-            if (vm.TotalAccepted != "4" || Directory.GetFiles(directory, "SRBMiner-Monitor-*.bat").Length != 1) throw new InvalidOperationException("Pasted BAT launch failed.");
+            if (vm.TotalAccepted != "4" || Directory.GetFiles(directory, "Miner-Monitor-*.bat").Length != 1) throw new InvalidOperationException("Pasted BAT launch failed.");
             var persisted = await File.ReadAllTextAsync(Path.Combine(output, "isolated-settings", "settings.json"));
             if (persisted.Contains("--wallet TEST") || persisted.Contains("\"BatchContent\"")) throw new InvalidOperationException("Pasted BAT must be protected in settings.");
             var restored = await new SettingsStore(Path.Combine(output, "isolated-settings")).LoadAsync();
             if (restored.BatchContent != batchScript || !restored.UsePastedBatch) throw new InvalidOperationException("Pasted BAT protection/restore failed.");
             vm.SettingsCommand.Execute(null); await render("pasted-bat-settings"); vm.OverviewCommand.Execute(null);
             await InvokeMinerButton(vm, "StopMinerButton"); await AssertPortClosed(port);
-            if (Directory.GetFiles(directory, "SRBMiner-Monitor-*.bat").Length != 0) throw new InvalidOperationException("Generated BAT was not removed after stop.");
+            if (Directory.GetFiles(directory, "Miner-Monitor-*.bat").Length != 0) throw new InvalidOperationException("Generated BAT was not removed after stop.");
             vm.Settings.BatchInputMode = vm.Settings.BatchModes[0];
             Console.WriteLine("PASS: pasted BAT -> automatic API -> correct working folder -> protected settings -> stop deletes generated BAT.");
             // START exits its cmd parent immediately. The Job must still own the surviving child.

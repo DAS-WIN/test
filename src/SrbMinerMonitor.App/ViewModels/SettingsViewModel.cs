@@ -3,6 +3,12 @@ namespace SrbMinerMonitor.App.ViewModels;
 
 public sealed class SettingsViewModel : ObservableObject
 {
+    private MinerSettings _loaded = new();
+    private string _minerId = "srbminer";
+    public IReadOnlyList<MinerDescriptor> Miners { get; } = MinerAdapterRegistry.Default.Descriptors;
+    public string MinerId { get => _minerId; set { if (Set(ref _minerId, value)) { AdapterOptions = Services.MinerOptionsRegistry.Create(_loaded with { MinerId = value }); Changed(nameof(AdapterOptions)); Changed(nameof(UnsupportedHint)); } } }
+    public object? AdapterOptions { get; private set; }
+    public string UnsupportedHint => Miners.Any(m => m.Id == MinerId) ? "" : "此版本不支援設定中的挖礦程式。請更新應用程式。";
     private string _mode = "選擇現有 BAT", _batchFile = "", _batchContent = "", _directory = "", _rigName = "rig-01", _apiPort = "21550";
     private string _refreshValue = "1", _refreshUnit = "分";
     private bool _restartOnUnexpectedExit;
@@ -23,6 +29,7 @@ public sealed class SettingsViewModel : ObservableObject
     public string ApiPort { get => _apiPort; set => Set(ref _apiPort, value); }
     public void Load(MinerSettings settings)
     {
+        _loaded = settings; MinerId = settings.MinerId; AdapterOptions = Services.MinerOptionsRegistry.Create(settings); Changed(nameof(AdapterOptions)); Changed(nameof(UnsupportedHint));
         BatchInputMode = BatchModes[settings.UsePastedBatch ? 1 : 0]; BatchFile = settings.BatchFile;
         BatchContent = settings.BatchContent; BatchDirectory = settings.BatchDirectory;
         if (BatchDirectory.Length == 0 && BatchFile.Length > 0) BatchDirectory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(BatchFile)) ?? "";
@@ -37,7 +44,8 @@ public sealed class SettingsViewModel : ObservableObject
         var index = Array.IndexOf(RefreshUnits, RefreshUnit);
         var refresh = new MetricRefreshOptions(intervalValue, (SrbMinerMonitor.Core.RefreshUnit)index);
         if (refresh.Validate() is string error) throw new ArgumentException(error);
-        return new() { RestartOnUnexpectedExit = RestartOnUnexpectedExit, MetricRefresh = refresh, BatchFile = BatchFile.Trim(), UsePastedBatch = IsPastedBatch, BatchContent = BatchContent,
+        var result = _loaded with { MinerId = MinerId, RestartOnUnexpectedExit = RestartOnUnexpectedExit, MetricRefresh = refresh, BatchFile = BatchFile.Trim(), UsePastedBatch = IsPastedBatch, BatchContent = BatchContent,
             BatchDirectory = BatchDirectory.Trim(), RigName = RigName.Trim(), ApiPort = port, Restart = restart };
+        return AdapterOptions is Services.IMinerOptionsViewModel options ? options.Apply(result) : result;
     }
 }

@@ -67,7 +67,7 @@ public sealed class WindowsBatchProcess : IMinerProcess, IDisposable
             Marshal.WriteIntPtr(handles, IntPtr.Size, write.DangerousGetHandle());
             if (!UpdateProcThreadAttribute(startup.Attributes, 0, (IntPtr)0x20002, handles, (nuint)(2 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
             if (!CreateProcessW(cmd, command, IntPtr.Zero, IntPtr.Zero, true, 0x4 | 0x10 | 0x200 | 0x400 | 0x80000,
-                envBlock, Path.GetDirectoryName(batch)!, ref startup, out child)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                envBlock, (string.IsNullOrWhiteSpace(settings.BatchDirectory) ? Path.GetDirectoryName(batch) : settings.BatchDirectory)!, ref startup, out child)) throw new Win32Exception(Marshal.GetLastWin32Error());
             if (!AssignProcessToJobObject(_job, child.Process))
             {
                 var code = Marshal.GetLastWin32Error();

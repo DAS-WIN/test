@@ -1,4 +1,4 @@
-# SRBMiner Monitor 0.2.0
+# SRBMiner Monitor 0.3.0
 
 繁體中文 Windows 桌面監控工具，以 BAT 啟動本機 SRBMiner-Multi，集中顯示硬體資訊、分享結果、礦工輸出與重啟狀態。
 
@@ -55,4 +55,10 @@ pwsh ./scripts/Smoke-Windows.ps1
 pwsh ./scripts/Publish-Windows.ps1
 ```
 
-詳見[架構](docs/IMPLEMENTATION.md)、[資料來源](docs/DATA-SOURCES.md)、[驗證方式](docs/VERIFICATION.md)及[版本說明](docs/RELEASE-NOTES-0.2.0.md)。
+詳見[架構](docs/IMPLEMENTATION.md)、[資料來源](docs/DATA-SOURCES.md)、[驗證方式](docs/VERIFICATION.md)及[版本說明](docs/RELEASE-NOTES-0.3.0.md)。
+
+## 可擴充礦工支援
+
+目前正式清單只有 SRBMiner-Multi；設定頁可明確選擇挖礦程式。後續版本可加入獨立轉接器，沿用監控、程序控制與排程。CPU/GPU、演算法集合及速率單位已納入資料模型；這不代表目前已驗證其他礦工或 SRBMiner 雙挖。
+
+舊設定自動以 SRBMiner 載入，首次寫入新版設定前保存備份。未知礦工或較新設定格式會提示更新，不會改用 SRBMiner 解讀。開發方式見 [新增礦工指南](docs/ADDING-MINERS.md)。

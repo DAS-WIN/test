@@ -2,6 +2,8 @@ namespace SrbMinerMonitor.Core;
 
 public sealed class MinerProcess : IMinerProcess, IDisposable
 {
+    private readonly MinerAdapterRegistry _registry;
+    public MinerProcess(MinerAdapterRegistry? registry = null) => _registry = registry ?? MinerAdapterRegistry.Default;
     private WindowsBatchProcess? _batch;
     private int? _activeApiPort;
     private string? _generatedBatch;
@@ -11,16 +13,24 @@ public sealed class MinerProcess : IMinerProcess, IDisposable
 
     public async Task StartAsync(MinerSettings settings, CancellationToken ct)
     {
-        if (settings.Validate() is string error) throw new ArgumentException(error);
+        var plan = _registry.Get(settings.MinerId).PrepareLaunch(settings);
         if (IsRunning) throw new InvalidOperationException("已有受管理的礦工程序。");
-        LocalApiPort.EnsureAvailable(settings.ApiPort);
-        _activeApiPort = settings.ApiPort;
+        if (plan.ApiPort is int port) LocalApiPort.EnsureAvailable(port);
+        _activeApiPort = plan.ApiPort;
         _batch?.Dispose(); _batch = null; DeleteGeneratedBatch();
-        if (settings.UsePastedBatch)
+        if (plan.BatchBytes is not null)
         {
-            _generatedBatch = await PastedBatch.CreateAsync(settings, ct);
-            settings = settings with { UsePastedBatch = false, BatchFile = _generatedBatch };
+            _generatedBatch = Path.Combine(plan.WorkingDirectory, "Miner-Monitor-" + Guid.NewGuid().ToString("N") + ".bat");
+            var created = false;
+            try
+            {
+                await using var stream = new FileStream(_generatedBatch, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, true);
+                created = true;
+                await stream.WriteAsync(plan.BatchBytes, ct);
+            }
+            catch { if (created) DeleteGeneratedBatch(); else _generatedBatch = null; throw; }
         }
+        settings = settings with { UsePastedBatch = false, BatchFile = _generatedBatch ?? plan.BatchFile, BatchDirectory = plan.WorkingDirectory };
         OutputSession = Guid.NewGuid();
         var session = OutputSession;
         _batch = new WindowsBatchProcess();

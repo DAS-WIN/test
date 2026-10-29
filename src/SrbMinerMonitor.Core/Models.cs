@@ -9,22 +9,32 @@ public sealed record ShareStats(long? Accepted = null, long? Rejected = null,
         ? (double)a / (a + r) * 100 : null;
 }
 
-public sealed record GpuMetrics(int Id, string Name, double? Hashrate = null, double? Power = null,
+public record DeviceMetrics(int Id, string Name, double? Hashrate = null, double? Power = null,
     double? Fan = null, double? Temperature = null, double? CoreClock = null,
     double? MemoryClock = null, ShareStats? Shares = null)
 {
+    public DeviceKind Kind { get; init; } = DeviceKind.Gpu;
+    public string? Uuid { get; init; }
+    public string? PciAddress { get; init; }
+    public string RateUnit { get; init; } = "H/s";
     public double? Efficiency => Power > 0 && Hashrate.HasValue ? Hashrate / Power : null;
 }
 
 public sealed record MinerSnapshot(DateTimeOffset Timestamp, string? Version, string? Algorithm,
-    double? UptimeSeconds, IReadOnlyList<GpuMetrics> Gpus, ShareStats Shares,
+    double? UptimeSeconds, IReadOnlyList<DeviceMetrics> Gpus, ShareStats Shares,
     double? Hashrate = null, string? Pool = null, bool? PoolConnected = null,
     double? Latency = null, DateTimeOffset? LastShare = null, Guid Session = default)
 {
+    public string MinerId { get; init; } = "";
+    public string MinerName { get; init; } = "";
+    public IReadOnlyList<DeviceMetrics> Devices => Gpus;
+    public IReadOnlyList<AlgorithmMetrics> Algorithms { get; init; } = [];
+    public ObservationMetadata? Observation { get; init; }
+    public string RateUnit => Algorithms.Count == 1 ? Algorithms[0].RateUnit : "H/s";
     // Do not present a partial sensor sum as total GPU power.
     public double? TotalPower => Gpus.Count > 0 && Gpus.All(g => g.Power.HasValue)
         ? Gpus.Sum(g => g.Power!.Value) : null;
-    public double? TotalHashrate => Hashrate ?? (Gpus.Count > 0 && Gpus.All(g => g.Hashrate.HasValue)
+    public double? TotalHashrate => Algorithms.Count > 1 ? null : Hashrate ?? (Gpus.Count > 0 && Gpus.All(g => g.Hashrate.HasValue)
         ? Gpus.Sum(g => g.Hashrate!.Value) : null);
     public double? Efficiency => TotalPower > 0 ? TotalHashrate / TotalPower : null;
     public double? MaxTemperature => Gpus.Where(g => g.Temperature.HasValue)
@@ -41,6 +51,11 @@ public sealed record RestartOptions(bool Enabled = false, int RunValue = 6, bool
 
 public sealed record MinerSettings
 {
+    public const int CurrentSchemaVersion = 1;
+    public int SchemaVersion { get; init; } = CurrentSchemaVersion;
+    public string MinerId { get; init; } = "srbminer";
+    [JsonExtensionData] public Dictionary<string, System.Text.Json.JsonElement>? ExtensionData { get; init; }
+    public Dictionary<string, System.Text.Json.JsonElement>? AdapterSettings { get; init; }
     public string BatchFile { get; init; } = "";
     public bool UsePastedBatch { get; init; }
     [JsonIgnore] public string BatchContent { get; init; } = "";
@@ -54,6 +69,8 @@ public sealed record MinerSettings
 
     public string? Validate(bool checkFile = true)
     {
+        if (SchemaVersion != CurrentSchemaVersion) return "設定格式版本不支援，請更新應用程式。";
+        if (string.IsNullOrWhiteSpace(MinerId)) return "請選擇挖礦程式。";
         if (MetricRefresh.Validate() is string intervalError) return intervalError;
         if (ApiPort is < 1 or > 65535) return "API 連接埠必須介於 1 與 65535。";
         if (UsePastedBatch)

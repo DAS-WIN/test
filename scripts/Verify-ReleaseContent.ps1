@@ -9,7 +9,7 @@ function Assert-Text([string]$Name, [string]$Value) {
 }
 function Assert-Entry([string]$Name, [bool]$ValidationArchive) {
     $normalized = $Name.Replace('\', '/')
-    if ($normalized -match '(^|/)(settings\.json|SRBMiner-Monitor-.+\.bat|[^/]+\.user)$' -or
+    if ($normalized -match '(^|/)(settings\.json|(?:SRBMiner|Miner)-Monitor-.+\.bat|[^/]+\.user)$' -or
         $normalized -match '(^|/)\.git(/|$)') { throw "Local data must not be packaged: $Name" }
     if (-not $ValidationArchive -and $normalized -match '\.log$') { throw "Runtime log must not be packaged: $Name" }
     if ($normalized -match '(?i)(^|/)(SRBMiner-MULTI\.exe|SrbMinerMonitor\.(Tests|FakeMiner|WindowsSmoke)\.(exe|dll))$') {

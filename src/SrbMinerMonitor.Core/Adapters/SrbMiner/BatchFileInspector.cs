@@ -7,6 +7,8 @@ public sealed record BatchInspection(bool ApiEnabled, int? ApiPort, string? Exec
 
 public static partial class BatchFileInspector
 {
+    public static bool HasMinerCommand(string text) => text.Split('\n').Any(line =>
+        !IgnoreLine().IsMatch(line) && !ControlLine().IsMatch(line) && MinerPath().IsMatch(line));
     public static BatchInspection Inspect(string text, string directory)
     {
         var commands = string.Join('\n', text.Split('\n').Where(line => !IgnoreLine().IsMatch(line)));
