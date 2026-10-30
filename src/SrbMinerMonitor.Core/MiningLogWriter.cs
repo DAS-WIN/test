@@ -6,38 +6,38 @@ using System.Threading.Channels;
 
 namespace SrbMinerMonitor.Core;
 
+// One entry per actual accepted stdout line. API counters never synthesize a share record.
 public sealed record MiningLogEntry(
-    DateTimeOffset Timestamp, string Kind, Guid Session,
-    [property: JsonPropertyName("accepted_total")] long? AcceptedTotal = null,
-    [property: JsonPropertyName("accepted_delta")] long? AcceptedDelta = null,
-    [property: JsonPropertyName("hashrate_hps")] double? HashrateHps = null,
-    [property: JsonPropertyName("hashrate_timestamp")] DateTimeOffset? HashrateTimestamp = null,
-    [property: JsonPropertyName("accepted_10m_per_minute")] double? Accepted10m = null,
-    [property: JsonPropertyName("accepted_30m_per_minute")] double? Accepted30m = null,
-    [property: JsonPropertyName("accepted_1h_per_minute")] double? Accepted1h = null,
-    [property: JsonPropertyName("pool_difficulty")] double? PoolDifficulty = null,
-    [property: JsonPropertyName("pool_difficulty_timestamp")] DateTimeOffset? PoolDifficultyTimestamp = null);
+    DateTimeOffset Timestamp, Guid Session, string ShareText, DateTimeOffset? ShareTimestamp,
+    double? HashrateHps = null, DateTimeOffset? HashrateTimestamp = null,
+    double? PoolDifficulty = null, DateTimeOffset? PoolDifficultyTimestamp = null);
 
 public sealed class MiningLogWriter : IAsyncDisposable
 {
-    private sealed record Work(MiningLogEntry? Entry, TaskCompletionSource? Barrier = null);
+    private sealed record Work(MiningLogEntry? Entry, string? Directory = null, TaskCompletionSource? Barrier = null);
     private readonly Channel<Work> _queue = Channel.CreateBounded<Work>(new BoundedChannelOptions(2048)
         { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly Task _worker;
     private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
     private string? _error;
     private int _completed;
-    public string DirectoryPath { get; }
+    private string _directory;
+    public string DirectoryPath => Volatile.Read(ref _directory);
+    public void SetDirectory(string directory)
+    {
+        Volatile.Write(ref _directory, Path.GetFullPath(directory));
+        Volatile.Write(ref _error, null);
+    }
     public string? Error => Volatile.Read(ref _error);
     public MiningLogWriter(string directory)
     {
-        DirectoryPath = Path.GetFullPath(directory);
+        _directory = Path.GetFullPath(directory);
         _worker = Task.Run(Run);
     }
     public bool TryWrite(MiningLogEntry entry)
     {
         if (Volatile.Read(ref _completed) != 0) return false;
-        if (_queue.Writer.TryWrite(new(entry))) return true;
+        if (_queue.Writer.TryWrite(new(entry, DirectoryPath))) return true;
         Volatile.Write(ref _error, "寫入佇列已滿，部分紀錄未保存。");
         return false;
     }
@@ -45,7 +45,7 @@ public sealed class MiningLogWriter : IAsyncDisposable
     {
         if (Volatile.Read(ref _completed) != 0) { await _worker.ConfigureAwait(false); return; }
         var barrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        try { await _queue.Writer.WriteAsync(new(null, barrier)).ConfigureAwait(false); }
+        try { await _queue.Writer.WriteAsync(new(null, Barrier: barrier)).ConfigureAwait(false); }
         catch (ChannelClosedException) { await _worker.ConfigureAwait(false); return; }
         await barrier.Task.ConfigureAwait(false);
     }
@@ -57,9 +57,9 @@ public sealed class MiningLogWriter : IAsyncDisposable
             try
             {
                 var entry = work.Entry!;
-                Directory.CreateDirectory(DirectoryPath);
+                Directory.CreateDirectory(work.Directory!);
                 var day = entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-                var path = Path.Combine(DirectoryPath, $"mining-{day}-{Environment.ProcessId}.log");
+                var path = Path.Combine(work.Directory!, $"mining-{day}-{Environment.ProcessId}.log");
                 var line = JsonSerializer.Serialize(entry, _json) + Environment.NewLine;
                 await File.AppendAllTextAsync(path, line, new UTF8Encoding(false)).ConfigureAwait(false);
             }

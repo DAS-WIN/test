@@ -6,6 +6,20 @@ public sealed class SchedulerTests
 {
     private static readonly MinerSettings Settings = new();
     private static readonly RestartOptions Options = new(true, 1, false, 1);
+    [Fact] public async Task UnexpectedExitCountsOncePerCrashAndNeverForManualOrScheduledStops()
+    {
+        var clock = new Clock(); var miner = new FakeMiner(); var controller = new MinerController(miner, clock);
+        await controller.StartAsync(Settings); await controller.RestartAsync(Settings);
+        await controller.StopAsync(); await controller.TickAsync(); Assert.Equal(0, controller.UnexpectedExits);
+        await controller.StartAsync(Settings); await controller.ApplyScheduleAsync(Options);
+        clock.Advance(TimeSpan.FromMinutes(1)); await controller.TickAsync(); Assert.Equal(0, controller.UnexpectedExits);
+        clock.Advance(TimeSpan.FromMinutes(1)); await controller.TickAsync();
+        miner.Crash(); await controller.TickAsync(); await controller.TickAsync();
+        Assert.Equal(1, controller.UnexpectedExits);
+        clock.Advance(TimeSpan.FromMinutes(1)); await controller.TickAsync();
+        miner.Crash(); await controller.TickAsync(); Assert.Equal(2, controller.UnexpectedExits);
+        await controller.StopAsync(); await controller.TickAsync(); Assert.Equal(2, controller.UnexpectedExits);
+    }
     [Fact] public void RestoredOptionsDoNotArmNewScheduler()
     { var scheduler = new RestartScheduler(); Assert.False(scheduler.Armed); Assert.Equal(SchedulePhase.Disabled, scheduler.Phase); }
     [Fact] public async Task FirstCountdownStartsAtApplyRatherThanProcessStart()

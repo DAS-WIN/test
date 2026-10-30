@@ -31,6 +31,13 @@
     <TextBlock Text="定時重啟已啟用時：意外退出後改依排程的「停止後等待時間」倒數重啟，成功啟動後重新計算運行時間。兩項同時啟用只會啟動一個礦工。" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,10,0,0"/>
     <TextBlock Text="手動停止會取消待重啟動作。重新開啟監控程式不會自行開始挖礦。" Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
    </StackPanel></Border>
+   <Border Style="{StaticResource Panel}" Margin="0,18,0,18"><StackPanel>
+    <TextBlock Text="成功分享紀錄" Style="{StaticResource SectionTitle}"/>
+    <TextBlock Text="自訂資料夾（留空使用預設位置）" Style="{StaticResource Muted}" Margin="0,0,0,8"/>
+    <DockPanel><Button Content="選擇紀錄資料夾…" Command="{Binding BrowseMiningLogDirectoryCommand}" DockPanel.Dock="Right" Margin="10,0,0,0"/><TextBox x:Name="MiningLogDirectoryEditor" Text="{Binding Settings.MiningLogDirectory, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
+    <TextBlock Text="每次成功 share 保存原始文字、回報時間、最新算力樣本與之前最後回報的礦池難度；不保存平均數據。儲存後的新紀錄使用新位置，舊檔案保留原處。" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+    <TextBlock Text="{Binding MiningLogStatus}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+   </StackPanel></Border>
    <Border Style="{StaticResource Panel}"><StackPanel>
     <TextBlock Text="監控設定" Style="{StaticResource SectionTitle}"/>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="20"/><ColumnDefinition/></Grid.ColumnDefinitions>
@@ -39,7 +46,7 @@
     </Grid>
     <TextBlock Text="硬體資訊更新間隔" Style="{StaticResource Muted}" Margin="0,16,0,7"/>
     <StackPanel Orientation="Horizontal"><TextBox x:Name="RefreshIntervalValue" Width="120" Text="{Binding Settings.RefreshValue, UpdateSourceTrigger=PropertyChanged}"/><ComboBox x:Name="RefreshIntervalUnit" Width="100" Margin="10,0,0,0" ItemsSource="{Binding Settings.RefreshUnits}" SelectedItem="{Binding Settings.RefreshUnit}"/></StackPanel>
-    <TextBlock Text="預設 1 分鐘。算力、功耗、溫度、風扇與時脈依此間隔統一更新；最近成功分享及 Accepted 始終即時更新。" TextWrapping="Wrap" Foreground="{StaticResource AccentBrush}" Margin="0,12,0,0"/>
+    <TextBlock Text="預設 1 分鐘。算力、功耗、溫度、風扇、時脈與 Accepted 平均值依此間隔統一更新；最近成功分享及 Accepted 始終即時更新。" TextWrapping="Wrap" Foreground="{StaticResource AccentBrush}" Margin="0,12,0,0"/>
     <TextBlock Text="儲存設定即可套用更新間隔，無須重啟礦工。" Style="{StaticResource Muted}" Margin="0,8,0,0"/>
     <TextBlock Text="{Binding ApiStatus}" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,10,0,0"/>
    </StackPanel></Border>

@@ -47,6 +47,9 @@ internal static class Program
         {
             try
             {
+                var idlePolls = vm.ApiPollCount;
+                await Task.Delay(1200);
+                if (vm.ApiPollCount != idlePolls) throw new InvalidOperationException("Idle GUI queried an unstarted miner.");
                 if (vm.Settings.RefreshValue != "1" || vm.Settings.RefreshUnit != "分" || !vm.Settings.RefreshUnits.SequenceEqual(new[] { "秒", "分", "時", "天" })) throw new InvalidOperationException("Refresh interval must default to one minute with four units.");
                 if (vm.Gpus.Count != 0 || vm.Hashrate != "—") throw new InvalidOperationException("Startup must be empty; no demonstration data or automatic mining.");
                 if (vm.Settings.RestartOnUnexpectedExit) throw new InvalidOperationException("Unexpected-exit recovery must default to off.");
@@ -234,10 +237,17 @@ internal static class Program
         string MinerPid() => System.Text.RegularExpressions.Regex.Matches(vm.MinerOutputText, @"FIXTURE_MINER_PID=(\d+)").Last().Groups[1].Value;
         string Hardware() => string.Join("|", new[] { vm.Hashrate, vm.Power, vm.Efficiency, vm.Temperature }.Concat(vm.Gpus.Select(g => string.Join("/", g.Hashrate, g.Power, g.Efficiency, g.Fan, g.Temperature, g.Core, g.Memory))));
         var miner = MinerPid();
+        var previousLogDirectory = vm.MiningLogDirectory;
+        await vm.FlushMiningLogsAsync();
+        var previousLogCount = ReadMiningRecords(vm).Count;
+        vm.Settings.MiningLogDirectory = Path.Combine(output, "custom-share-data");
         vm.Settings.RefreshValue = "1"; vm.Settings.RefreshUnit = "天";
         await Execute(vm, vm.SaveCommand);
         if (vm.Power == "—" || vm.Temperature == "—") throw new InvalidOperationException("Hardware sensor fixture did not bind.");
         var frozen = Hardware(); var historyCount = vm.History.Samples.Count;
+        string Averages() => string.Join("|", vm.AcceptedAverage10m, vm.AcceptedAverage30m, vm.AcceptedAverage1h, vm.AcceptedAverageOverall, vm.AcceptedAverageUpdated);
+        var frozenAverages = Averages();
+        if (vm.MiningLogDirectory != Path.GetFullPath(vm.Settings.MiningLogDirectory)) throw new InvalidOperationException("Custom log directory did not apply live.");
         var successes = vm.Events.Count(e => e.Category == "成功");
         var recentId = vm.RecentShares.First().Id;
         await File.WriteAllTextAsync(Path.Combine(directory, "fixture-api-accepted"), "go");
@@ -255,8 +265,9 @@ internal static class Program
         Console.WriteLine("PASS: API only updates numeric counters; recent-success panel stays unchanged until CMD output, then shows the exact original line once.");
         await vm.FlushMiningLogsAsync();
         var baselineRecords = ReadMiningRecords(vm);
-        var activeSession = baselineRecords.Last(e => e.GetProperty("kind").GetString() == "session_start").GetProperty("session").GetGuid();
-        var hardwareRecords = baselineRecords.Count(e => e.GetProperty("session").GetGuid() == activeSession && e.GetProperty("kind").GetString() == "hardware");
+        if (baselineRecords.Count != 1 || baselineRecords[0].GetProperty("share_text").GetString() != expected)
+            throw new InvalidOperationException("API-only increments or hardware updates wrote synthetic log entries.");
+        var activeSession = baselineRecords[0].GetProperty("session").GetGuid();
         await File.WriteAllTextAsync(Path.Combine(directory, "fixture-difficulty"), "go");
         deadline = DateTimeOffset.Now.AddSeconds(3);
         while (!vm.MinerOutputText.Contains("[diff: 2000]") && DateTimeOffset.Now < deadline) await Task.Delay(20);
@@ -266,19 +277,25 @@ internal static class Program
         while (vm.TotalAccepted != "6" && DateTimeOffset.Now < deadline) await Task.Delay(20);
         await vm.FlushMiningLogsAsync();
         var records = ReadMiningRecords(vm).Where(e => e.GetProperty("session").GetGuid() == activeSession).ToArray();
-        if (records.Where(e => e.GetProperty("kind").GetString() == "accepted").Sum(e => e.GetProperty("accepted_delta").GetInt64()) != 6)
-            throw new InvalidOperationException("Mining log duplicated API and buffered output shares.");
-        var lastAccepted = records.Last(e => e.GetProperty("kind").GetString() == "accepted");
-        if (lastAccepted.GetProperty("accepted_total").GetInt64() != 6 || lastAccepted.GetProperty("pool_difficulty").GetDouble() != 2000
-            || lastAccepted.GetProperty("pool_difficulty_timestamp").ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("Accepted log is missing current reported pool difficulty.");
-        if (records.Count(e => e.GetProperty("kind").GetString() == "hardware") != hardwareRecords || Hardware() != frozen)
-            throw new InvalidOperationException("Immediate accepted or difficulty logging refreshed frozen hardware.");
-        if (!records.Any(e => e.GetProperty("kind").GetString() == "hardware" && e.GetProperty("hashrate_hps").GetDouble() > 0)
-            || !records.Any(e => e.GetProperty("kind").GetString() == "difficulty" && e.GetProperty("pool_difficulty").GetDouble() == 2000))
-            throw new InvalidOperationException("Hardware and difficulty records missing.");
-        if (!vm.AcceptedAverage10m.Contains("新增 6 筆") || !vm.AcceptedAverage30m.Contains("涵蓋") || !vm.AcceptedAverage1h.Contains("筆／分鐘"))
-            throw new InvalidOperationException("Accepted rolling averages are missing actual coverage.");
+        if (records.Length != 2) throw new InvalidOperationException("Expected exactly one log row per raw accepted share.");
+        var lastAccepted = records[^1];
+        if (lastAccepted.GetProperty("pool_difficulty").GetDouble() != 2000
+            || lastAccepted.GetProperty("pool_difficulty_timestamp").ValueKind != JsonValueKind.String
+            || lastAccepted.GetProperty("share_timestamp").ValueKind != JsonValueKind.String
+            || lastAccepted.GetProperty("hashrate_hps").GetDouble() <= 0
+            || lastAccepted.GetProperty("hashrate_timestamp").GetDateTimeOffset() <= baselineRecords[0].GetProperty("hashrate_timestamp").GetDateTimeOffset())
+            throw new InvalidOperationException("Share log is missing the actual timestamp, latest API rate, or preceding pool difficulty.");
+        foreach (var row in records)
+        {
+            if (row.TryGetProperty("accepted_10m_per_minute", out _) || row.TryGetProperty("accepted_30m_per_minute", out _)
+                || row.TryGetProperty("accepted_1h_per_minute", out _) || row.TryGetProperty("kind", out _))
+                throw new InvalidOperationException("Average or non-share log metadata remains.");
+            if (!row.GetProperty("share_text").GetString()!.Contains("share accepted")) throw new InvalidOperationException("Share text missing.");
+        }
+        if (Hardware() != frozen || Averages() != frozenAverages)
+            throw new InvalidOperationException("Live shares refreshed hardware or accepted averages before the configured interval.");
+        var oldRows = Directory.GetFiles(previousLogDirectory, "*.log").Sum(p => File.ReadAllLines(p).Length);
+        if (oldRows != previousLogCount) throw new InvalidOperationException("New records were still written to the old directory.");
         await render("accepted-averages-and-mining-log");
         await File.WriteAllTextAsync(Path.Combine(directory, "fixture-crt-accepted"), "go");
         deadline = DateTimeOffset.Now.AddSeconds(2);
@@ -288,7 +305,7 @@ internal static class Program
         if (!vm.MinerOutputText.Contains("NATIVE_CRT_TTY=64") && !vm.MinerOutputText.Contains("NATIVE_CRT_TTY=1"))
             throw new InvalidOperationException("Native child CRT stdout is not a terminal: " + vm.MinerOutputText);
         Console.WriteLine("PASS: native CRT printf accepted reaches recent shares within 2 seconds through the pseudoconsole without explicit flush; GUI has no console.");
-        Console.WriteLine("PASS: 10m/30m/1h accepted averages; actual coverage; hardware log; immediate accepted log without duplicate API/output counts; current pool difficulty 1000 -> 2000 logged independently of daily hardware.");
+        Console.WriteLine("PASS: raw accepted-only log rows; original text and share timestamp, latest API hashrate and preceding pool difficulty; no average records or API duplicates; live custom directory switching; 10m/30m/1h/overall averages remain frozen with hardware.");
 
         vm.Settings.RefreshValue = "2"; vm.Settings.RefreshUnit = "秒";
         await Execute(vm, vm.SaveCommand);
@@ -296,7 +313,11 @@ internal static class Program
         deadline = DateTimeOffset.Now.AddSeconds(7);
         while ((vm.Power == power || vm.Hashrate == rate) && DateTimeOffset.Now < deadline) await Task.Delay(100);
         if (vm.Power == power || vm.Hashrate == rate || MinerPid() != miner) throw new InvalidOperationException("Custom seconds interval did not refresh hardware without restarting the miner.");
+        if (Averages() == frozenAverages || !vm.AcceptedAverageOverall.Contains("新增 7 筆")
+            || vm.AcceptedAverageUpdated != vm.HashrateUpdate)
+            throw new InvalidOperationException("Accepted averages must refresh with the same hardware sample timestamp.");
         var restored = await new SettingsStore(Path.Combine(output, "isolated-settings")).LoadAsync();
+        if (restored.MiningLogDirectory != vm.Settings.MiningLogDirectory) throw new InvalidOperationException("Custom directory was not persisted.");
         if (restored.MetricRefresh != new MetricRefreshOptions(2, RefreshUnit.Seconds)) throw new InvalidOperationException("Custom interval did not persist.");
         vm.SettingsCommand.Execute(null); await render("custom-refresh-settings"); vm.OverviewCommand.Execute(null); await render("live-share-fixed-hardware-interval");
         vm.Settings.RefreshValue = "0"; await Execute(vm, vm.SaveCommand);
@@ -332,6 +353,7 @@ internal static class Program
     private static async Task VerifyUnexpectedExitRecovery(MainViewModel vm, string directory, string output, Func<string, Task> render)
     {
         var appPid = Environment.ProcessId;
+        var initialCrashes = vm.UnexpectedExitCount;
         var window = Application.Current.Windows.OfType<MainWindow>().Single();
         string MinerPid() => System.Text.RegularExpressions.Regex.Matches(vm.MinerOutputText, @"FIXTURE_MINER_PID=(\d+)").Last().Groups[1].Value;
         async Task Until(Func<bool> condition, int seconds)
@@ -361,6 +383,11 @@ internal static class Program
         var previous = MinerPid();
         var watch = Stopwatch.StartNew(); await CrashFixture();
         await Until(() => vm.ScheduleSummary.StartsWith("異常退出 · 等待重啟"), 8);
+        if (vm.UnexpectedExitCount != initialCrashes + 1) throw new InvalidOperationException("Crash counter did not increment exactly once.");
+        var pausedPolls = vm.ApiPollCount; var pausedUpdate = vm.LastUpdate; var pausedAverage = vm.AcceptedAverageOverall;
+        await Task.Delay(1500);
+        if (vm.ApiPollCount != pausedPolls || vm.LastUpdate != pausedUpdate || vm.AcceptedAverageOverall != pausedAverage)
+            throw new InvalidOperationException("Nonexistent miner was still being monitored during recovery wait.");
         await render("unexpected-exit-countdown");
         await Until(() => MinerPid() != previous && vm.Status.StartsWith("BAT 運行中"), 18);
         await WaitForApi(vm);
@@ -369,7 +396,10 @@ internal static class Program
         // Manual stop while recovery is waiting must cancel any pending relaunch.
         await CrashFixture(); await Until(() => vm.ScheduleSummary.StartsWith("異常退出 · 等待重啟"), 8);
         await InvokeMinerButton(vm, "StopMinerButton"); previous = MinerPid();
+        pausedPolls = vm.ApiPollCount;
         await Task.Delay(TimeSpan.FromSeconds(12));
+        if (vm.ApiPollCount != pausedPolls || vm.UnexpectedExitCount != initialCrashes + 2)
+            throw new InvalidOperationException("Manual stop kept monitoring or incorrectly changed the crash count.");
         if (MinerPid() != previous || !vm.Status.StartsWith("礦工已停止")) throw new InvalidOperationException("Manual stop did not cancel recovery.");
         Console.WriteLine("PASS: manual stop during crash countdown cancels pending restart even with recovery setting enabled.");
         await Execute(vm, vm.StartCommand); await WaitForApi(vm);
@@ -382,13 +412,15 @@ internal static class Program
         if (MinerPid() != previous || !vm.ScheduleSummary.StartsWith("等待重啟")) throw new InvalidOperationException("Scheduled recovery used the independent 10-second timer instead of configured wait.");
         await Until(() => MinerPid() != previous && vm.Status.StartsWith("BAT 運行中"), 65); await WaitForApi(vm);
         if (watch.Elapsed < TimeSpan.FromSeconds(59) || vm.ScheduleSummary != "自動重啟未啟用") throw new InvalidOperationException("Scheduled crash recovery skipped full wait or did not complete one-shot.");
+        if (vm.UnexpectedExitCount != initialCrashes + 3) throw new InvalidOperationException("Scheduled recovery did not retain the crash counter.");
         await render("scheduled-unexpected-exit-recovered");
+        Console.WriteLine("PASS: unexpected exits counted once each, manual/scheduled stops excluded; no API or average updates while stopped/recovering; monitoring resumes after restart.");
         Console.WriteLine("PASS: recovery checkbox OFF + timed schedule ON; crash interrupts 10-minute run -> configured full 1-minute wait -> exactly one new miner, one-shot completes; GUI PID unchanged=" + appPid + ".");
     }
     private static List<JsonElement> ReadMiningRecords(MainViewModel vm)
     {
         var rows = new List<JsonElement>();
-        foreach (var path in Directory.GetFiles(vm.MiningLogDirectory, "*.log"))
+        foreach (var path in Directory.Exists(vm.MiningLogDirectory) ? Directory.GetFiles(vm.MiningLogDirectory, "*.log") : [])
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);

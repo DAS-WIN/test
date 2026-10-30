@@ -27,6 +27,13 @@ public sealed class AcceptedHistory
         if (before > 0) _points.RemoveRange(0, before);
         return delta;
     }
+    public AcceptedWindow Overall()
+    {
+        if (_points.Count == 0) return new(null, null, TimeSpan.Zero);
+        var coverage = _points[^1].Time - _started;
+        return coverage <= TimeSpan.Zero ? new(null, null, TimeSpan.Zero)
+            : new(_points[^1].Count, _points[^1].Count / coverage.TotalMinutes, coverage);
+    }
     public AcceptedWindow Window(TimeSpan duration)
     {
         if (duration <= TimeSpan.Zero || duration > TimeSpan.FromHours(1)) throw new ArgumentOutOfRangeException(nameof(duration));

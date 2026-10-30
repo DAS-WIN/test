@@ -99,8 +99,8 @@ public sealed class AcceptedTelemetryTests
         {
             var log = new MiningLogWriter(directory); var session = Guid.NewGuid();
             for (var i = 0; i < 100; i++)
-                Assert.True(log.TryWrite(new(Start, "accepted", session, i, 1, 1250000.5, Start, 2.5, 2.5, 2.5, 1000, Start)));
-            Assert.True(log.TryWrite(new(Start.AddDays(1), "session_start", Guid.NewGuid(), 0)));
+                Assert.True(log.TryWrite(new(Start, session, "GPU0[t0] share accepted [58ms] [fixture][0]", null, 1250000.5, Start, 1000, Start)));
+            Assert.True(log.TryWrite(new(Start.AddDays(1), Guid.NewGuid(), "GPU0[t0] share accepted [58ms] [fixture][0]", null)));
             await log.DisposeAsync();
             Assert.Null(log.Error);
             var files = Directory.GetFiles(directory, "*.log"); Assert.Equal(2, files.Length);
@@ -110,13 +110,14 @@ public sealed class AcceptedTelemetryTests
                 using var doc = JsonDocument.Parse(line); var root = doc.RootElement;
                 Assert.True(root.TryGetProperty("timestamp", out _)); Assert.True(root.TryGetProperty("session", out _));
                 Assert.False(root.TryGetProperty("wallet", out _));
-                if (root.GetProperty("kind").GetString() == "session_start")
+                if (root.GetProperty("hashrate_hps").ValueKind == JsonValueKind.Null)
                     Assert.Equal(JsonValueKind.Null, root.GetProperty("pool_difficulty").ValueKind);
                 else
                 {
                     Assert.Equal(1000, root.GetProperty("pool_difficulty").GetDouble());
                     Assert.Equal(1250000.5, root.GetProperty("hashrate_hps").GetDouble());
-                    Assert.Equal(2.5, root.GetProperty("accepted_10m_per_minute").GetDouble());
+                    Assert.False(root.TryGetProperty("accepted_10m_per_minute", out _));
+                    Assert.Contains("share accepted", root.GetProperty("share_text").GetString());
                 }
             }
         }
@@ -129,9 +130,63 @@ public sealed class AcceptedTelemetryTests
         try
         {
             await using var log = new MiningLogWriter(path);
-            Assert.True(log.TryWrite(new(Start, "accepted", Guid.NewGuid(), 1, 1)));
+            Assert.True(log.TryWrite(new(Start, Guid.NewGuid(), "GPU0[t0] share accepted", null)));
             await log.FlushAsync(); Assert.NotNull(log.Error);
         }
         finally { File.Delete(path); }
     }
+    [Fact] public void OverallPreservesSessionBaselineBeyondRollingHourAndResets()
+    {
+        var h = new AcceptedHistory(); h.Begin(Guid.NewGuid(), Start);
+        for (var minute = 1; minute <= 180; minute++) h.Observe(Start.AddMinutes(minute), minute * minute);
+        Assert.Equal(32400, h.Overall().Count); Assert.Equal(180, h.Overall().PerMinute);
+        Assert.Equal(TimeSpan.FromHours(3), h.Overall().Coverage);
+        Assert.NotEqual(h.Window(TimeSpan.FromMinutes(10)).PerMinute, h.Overall().PerMinute);
+        h.Begin(Guid.NewGuid(), Start.AddHours(4)); Assert.Null(h.Overall().PerMinute);
+    }
+    [Fact] public void ShareLogPreservesOriginalTimestampTextAndPrecedingDifficulty()
+    {
+        const string raw = "[2026-10-30 18:39:40] GPU0[t0] share accepted [   58ms] [fixture][0]";
+        var snapshot = new MinerSnapshot(Start.AddSeconds(-1), null, null, null, [], new(), 1234000);
+        var entry = ShareLog.FromOutput(raw, Guid.NewGuid(), Start, snapshot, 2000, Start.AddSeconds(-5))!;
+        Assert.Equal(raw, entry.ShareText); Assert.Equal(Start, entry.Timestamp);
+        Assert.Equal(new DateTime(2026, 10, 30, 18, 39, 40), entry.ShareTimestamp!.Value.DateTime);
+        Assert.Equal(1234000, entry.HashrateHps); Assert.Equal(snapshot.Timestamp, entry.HashrateTimestamp);
+        Assert.Equal(2000, entry.PoolDifficulty); Assert.Equal(Start.AddSeconds(-5), entry.PoolDifficultyTimestamp);
+        Assert.Null(ShareLog.FromOutput("GPU0 share rejected", Guid.NewGuid(), Start, snapshot, 2000, Start));
+        Assert.Null(ShareLog.FromOutput("DEVFEE GPU0 share accepted", Guid.NewGuid(), Start, snapshot, 2000, Start));
+        Assert.Null(ShareLog.FromOutput("Accepted: 5 API", Guid.NewGuid(), Start, snapshot, 2000, Start));
+    }
+    [Fact] public void ShareLogDoesNotFabricateUnknownOrStaleHashrateAndTimestamps()
+    {
+        var old = new MinerSnapshot(Start.AddSeconds(-16), null, null, null, [], new(), 1234000);
+        var entry = ShareLog.FromOutput("GPU0 share accepted", Guid.NewGuid(), Start, old, null, null)!;
+        Assert.Null(entry.HashrateHps); Assert.Null(entry.HashrateTimestamp);
+        Assert.Null(entry.ShareTimestamp); Assert.Null(entry.PoolDifficulty);
+    }
+    [Fact] public async Task DirectoryChangeKeepsAlreadyQueuedSharesAtTheirOriginalDestination()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), "log-switch-" + Guid.NewGuid().ToString("N"));
+        var first = Path.Combine(parent, "first"); var second = Path.Combine(parent, "second");
+        try
+        {
+            await using var log = new MiningLogWriter(first);
+            Assert.True(log.TryWrite(new(Start, Guid.NewGuid(), "GPU0 share accepted FIRST", null)));
+            log.SetDirectory(second);
+            Assert.True(log.TryWrite(new(Start, Guid.NewGuid(), "GPU0 share accepted SECOND", null)));
+            await log.FlushAsync();
+            Assert.Contains("FIRST", File.ReadAllText(Directory.GetFiles(first).Single()));
+            Assert.DoesNotContain("SECOND", File.ReadAllText(Directory.GetFiles(first).Single()));
+            Assert.Contains("SECOND", File.ReadAllText(Directory.GetFiles(second).Single()));
+        }
+        finally { if (Directory.Exists(parent)) Directory.Delete(parent, true); }
+    }
+    [Fact] public void InvalidCustomDirectoryCannotBeStoredAsRelativeOrMalformedPath()
+    {
+        Assert.NotNull(new MinerSettings { MiningLogDirectory = "relative-folder" }.ValidateLogDirectory());
+        Assert.NotNull(new MinerSettings { MiningLogDirectory = "\0" }.ValidateLogDirectory());
+        Assert.Null(new MinerSettings().ValidateLogDirectory());
+        Assert.Null(new MinerSettings { MiningLogDirectory = Path.GetTempPath() }.ValidateLogDirectory());
+    }
+
 }

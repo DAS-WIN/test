@@ -19,9 +19,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly MinuteMetrics _minuteMetrics = new();
     private readonly AcceptedHistory _acceptedHistory = new();
     private readonly MiningLogWriter _miningLog;
-    private Guid _telemetryRun, _snapshotOutputSession, _lastHardwareRun;
+    private Guid _telemetryRun, _snapshotOutputSession;
     private double? _poolDifficulty;
     private DateTimeOffset? _difficultyTimestamp, _acceptedObservedAt;
+    private AcceptedWindow _average10m = new(null, null, TimeSpan.Zero), _average30m = new(null, null, TimeSpan.Zero),
+        _average1h = new(null, null, TimeSpan.Zero), _averageOverall = new(null, null, TimeSpan.Zero);
+    public long ApiPollCount { get; private set; }
+    public long UnexpectedExitCount => _controller.UnexpectedExits;
     private readonly Queue<string> _outputLines = new();
     private MinerSettings _saved = new();
     private MinerSettings? _activeSettings;
@@ -51,6 +55,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand RestartCommand { get; }
     public ICommand BrowseBatchCommand { get; }
     public ICommand BrowseDirectoryCommand { get; }
+    public ICommand BrowseMiningLogDirectoryCommand { get; }
     public ICommand CreateMonitoringBatchCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand SaveRestartCommand { get; }
@@ -73,8 +78,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ApiEndpoint => $"http://127.0.0.1:{MonitoringSettings.ApiPort}";
     public string StartRequirement { get { try { return Settings.ToSettings(_restart).Validate() ?? "已準備好，可儲存並啟動。"; } catch (ArgumentException e) { return e.Message; } } }
     public string SaveStartText => _controller.IsRunning ? "儲存並重啟礦工" : "儲存並啟動 BAT";
-    public string SettingsFooterHint => "更新間隔與異常重啟選項儲存後立即套用；BAT 變更在啟動或重啟後套用。";
-    public string Status => _controller.IsTransitioning ? "礦工處理中" : _controller.IsRunning ? (_apiHealthy ? "BAT 運行中 · API 已連線" : "BAT 運行中 · 等待 API") : _apiHealthy ? "外部礦工 · 僅監控" : "礦工已停止";
+    public string SettingsFooterHint => "更新間隔、紀錄資料夾與異常重啟選項儲存後立即套用；BAT 變更在啟動或重啟後套用。";
+    public string Status => _controller.IsTransitioning ? "礦工處理中" : _controller.IsRunning ? (_apiHealthy ? "BAT 運行中 · API 已連線" : "BAT 運行中 · 等待 API") : "礦工已停止";
     public string RigTitle => MonitoringSettings.RigName + " / " + (_snapshot?.Algorithm ?? "等待演算法資訊");
     public string Version => "SRBMiner " + (_snapshot?.Version ?? "—") + "  ·  BAT 監控";
     public string Uptime => Display.Uptime(_snapshot?.UptimeSeconds);
@@ -82,7 +87,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string HashrateUpdate => _minuteMetrics.Snapshot?.Timestamp.ToLocalTime().ToString("MM-dd HH:mm:ss") ?? "—";
     public string MetricRefreshSummary => $"硬體資訊每 {_saved.MetricRefresh.Label} 更新";
     public double ChartMaxGapSeconds => _saved.MetricRefresh.Duration.TotalSeconds + 15;
-    public string Freshness => _snapshot is null ? "等待資料 · Accepted 即時更新" : DateTimeOffset.Now - _snapshot.Timestamp > TimeSpan.FromSeconds(15) ? "API 資料過期 · 分享訊息持續接收" : MetricRefreshSummary + " · 分享即時更新";
+    public string Freshness => !_controller.IsRunning ? "監控已暫停 · 等待開始挖礦" : _snapshot is null ? "等待資料 · Accepted 即時更新" : DateTimeOffset.Now - _snapshot.Timestamp > TimeSpan.FromSeconds(15) ? "API 資料過期 · 分享訊息持續接收" : MetricRefreshSummary + " · 分享即時更新";
     public string Hashrate => Display.Hash(_minuteMetrics.Snapshot?.TotalHashrate);
     public string Power => Display.Number(_minuteMetrics.Snapshot?.TotalPower, "W");
     public string Efficiency => Display.Hash(_minuteMetrics.Snapshot?.Efficiency, true, _minuteMetrics.Snapshot?.TotalHashrate);
@@ -114,30 +119,39 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         .Select(s => { var gpu = SelectedGpu is null ? null : s.Gpus.FirstOrDefault(g => g.Id == SelectedGpu.Metrics.Id);
             var value = Metric switch { "功耗" => SelectedGpu is null ? s.TotalPower : gpu?.Power, "溫度" => SelectedGpu is null ? s.MaxTemperature : gpu?.Temperature, _ => SelectedGpu is null ? s.TotalHashrate : gpu?.Hashrate };
             return new ChartSample(s.Timestamp, value, s.Session); }).ToArray();
-    public string AcceptedAverage10m => AcceptedAverage(TimeSpan.FromMinutes(10));
-    public string AcceptedAverage30m => AcceptedAverage(TimeSpan.FromMinutes(30));
-    public string AcceptedAverage1h => AcceptedAverage(TimeSpan.FromHours(1));
-    public string AcceptedAverageUpdated => _acceptedObservedAt?.ToLocalTime().ToString("HH:mm:ss") ?? "—";
+    public string AcceptedAverage10m => AcceptedAverage(_average10m);
+    public string AcceptedAverage30m => AcceptedAverage(_average30m);
+    public string AcceptedAverage1h => AcceptedAverage(_average1h);
+    public string AcceptedAverageOverall => AcceptedAverage(_averageOverall);
+    public string AcceptedAverageUpdated => _acceptedObservedAt?.ToLocalTime().ToString("MM-dd HH:mm:ss") ?? "—";
     public string MiningLogDirectory => _miningLog.DirectoryPath;
-    public string MiningLogStatus => _miningLog.Error ?? "自動記錄：" + MiningLogDirectory;
+    public string MiningLogStatus => _miningLog.Error ?? "逐筆成功分享紀錄：" + MiningLogDirectory;
     public Task FlushMiningLogsAsync() => _miningLog.FlushAsync();
-    private string AcceptedAverage(TimeSpan duration)
+    private static string AcceptedAverage(AcceptedWindow window)
     {
-        var window = _acceptedHistory.Window(duration);
         if (window.MissingBoundary) return "— · 缺少時段邊界資料";
         if (window.PerMinute is null) return "— · 尚在累積資料";
         return Display.Number(window.PerMinute, "筆／分鐘", "0.00")
             + $" · 新增 {window.Count:N0} 筆 · 涵蓋 {window.Coverage.TotalMinutes:0.00} 分鐘";
     }
+    private void CaptureAcceptedAverages(DateTimeOffset? timestamp)
+    {
+        _average10m = _acceptedHistory.Window(TimeSpan.FromMinutes(10));
+        _average30m = _acceptedHistory.Window(TimeSpan.FromMinutes(30));
+        _average1h = _acceptedHistory.Window(TimeSpan.FromHours(1));
+        _averageOverall = _acceptedHistory.Overall();
+        _acceptedObservedAt = timestamp;
+        foreach (var name in new[] { nameof(AcceptedAverage10m), nameof(AcceptedAverage30m), nameof(AcceptedAverage1h), nameof(AcceptedAverageOverall), nameof(AcceptedAverageUpdated) }) Changed(name);
+    }
     private void BeginAcceptedSession(Guid session, DateTimeOffset now)
     {
-        _acceptedHistory.Begin(session, now); _acceptedObservedAt = null;
-        WriteMiningLog("session_start", now, 0);
+        _acceptedHistory.Begin(session, now);
+        CaptureAcceptedAverages(null);
     }
     private void EnsureAcceptedSession(DateTimeOffset now)
     {
         if (_telemetryRun == _process.OutputSession) return;
-        _telemetryRun = _process.OutputSession; _lastHardwareRun = Guid.Empty;
+        _telemetryRun = _process.OutputSession;
         _poolDifficulty = null; _difficultyTimestamp = null;
         BeginAcceptedSession(_telemetryRun, now);
     }
@@ -145,20 +159,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (_process.OutputSession == Guid.Empty) return;
         EnsureAcceptedSession(now);
-        if (TotalShares.Accepted is not long count) return;
-        var delta = _acceptedHistory.Observe(now, count);
-        _acceptedObservedAt = now;
-        if (delta > 0) WriteMiningLog("accepted", now, delta);
+        if (TotalShares.Accepted is long count) _acceptedHistory.Observe(now, count);
     }
-    private void WriteMiningLog(string kind, DateTimeOffset now, long? delta = null)
+    private string LogDirectoryFor(MinerSettings settings) => string.IsNullOrWhiteSpace(settings.MiningLogDirectory)
+        ? Path.Combine(_store.DirectoryPath, "MiningLogs") : Path.GetFullPath(settings.MiningLogDirectory);
+    private static void CheckLogDirectory(string directory)
     {
-        var hardware = _lastHardwareRun == _process.OutputSession ? _minuteMetrics.Snapshot : null;
-        _miningLog.TryWrite(new(now, kind, _acceptedHistory.Session, _acceptedHistory.Total, delta,
-            hardware?.TotalHashrate, hardware?.Timestamp,
-            _acceptedHistory.Window(TimeSpan.FromMinutes(10)).PerMinute,
-            _acceptedHistory.Window(TimeSpan.FromMinutes(30)).PerMinute,
-            _acceptedHistory.Window(TimeSpan.FromHours(1)).PerMinute,
-            _poolDifficulty, _difficultyTimestamp));
+        Directory.CreateDirectory(directory);
+        using var probe = new FileStream(Path.Combine(directory, ".srbmonitor-" + Guid.NewGuid().ToString("N") + ".tmp"),
+            FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose);
     }
     public string Average1m => Average(TimeSpan.FromMinutes(1));
     public string Average15m => Average(TimeSpan.FromMinutes(15));
@@ -208,15 +217,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 var now = DateTimeOffset.Now;
                 EnsureAcceptedSession(now);
                 var clean = MinerOutput.Clean(line);
-                if (PoolDifficultyReader.Read(clean) is double difficulty && difficulty != _poolDifficulty)
+                if (PoolDifficultyReader.Read(clean) is double difficulty)
                 {
                     _poolDifficulty = difficulty; _difficultyTimestamp = now;
-                    WriteMiningLog("difficulty", now);
                 }
                 _minerOutput.Read(clean);
                 RecordAccepted(now);
                 _outputLines.Enqueue(Redact(clean)); while (_outputLines.Count > 500) _outputLines.Dequeue();
-                if (MinerOutput.Outcome(clean) is string outcome) AddShareEvent(outcome, clean);
+                if (MinerOutput.Outcome(clean) is string outcome)
+                {
+                    AddShareEvent(outcome, clean);
+                    if (ShareLog.FromOutput(clean, _acceptedHistory.Session, now, CurrentSnapshot, _poolDifficulty, _difficultyTimestamp) is { } entry)
+                        _miningLog.TryWrite(entry);
+                }
                 Changed(nameof(MinerOutputText)); Refresh();
             });
         };
@@ -224,11 +237,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OverviewCommand = new RelayCommand(() => Navigate("Overview"));
         SettingsCommand = new RelayCommand(() => Navigate("Settings"));
         EventsCommand = new RelayCommand(() => Navigate("Events"));
-        StartCommand = Command(Start, () => !_controller.IsRunning && !_apiHealthy);
+        StartCommand = Command(Start, () => !_controller.IsRunning);
         StopCommand = Command(Stop, () => _controller.IsRunning || _controller.Scheduler.Armed);
         RestartCommand = Command(RestartSaved, () => _controller.IsRunning);
         BrowseBatchCommand = Command(BrowseBatch);
         BrowseDirectoryCommand = new RelayCommand(() => { var dialog = new OpenFolderDialog { Title = "選擇 SRBMiner 所在資料夾" }; if (dialog.ShowDialog() == true) Settings.BatchDirectory = dialog.FolderName; }, () => !IsBusy);
+        BrowseMiningLogDirectoryCommand = new RelayCommand(() =>
+        {
+            var dialog = new OpenFolderDialog { Title = "選擇成功分享紀錄資料夾" };
+            if (dialog.ShowDialog() == true) Settings.MiningLogDirectory = dialog.FolderName;
+        }, () => !IsBusy);
         CreateMonitoringBatchCommand = Command(CreateMonitoringBatch, () => Settings.IsExistingBatch && File.Exists(Settings.BatchFile));
         SaveCommand = Command(() => Save(false));
         SaveRestartCommand = Command(() => Save(true), SettingsValid);
@@ -250,6 +268,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try { _saved = await _store.LoadAsync(); _restart = _saved.Restart; Settings.Load(_saved); }
         catch (Exception e) { _settingsLoaded = false; ShowError(new InvalidOperationException("設定讀取失敗，原檔保留；請重新儲存。" + e.Message)); }
+        _miningLog.SetDirectory(LogDirectoryFor(_saved));
         LoadScheduleFields();
         if (!Settings.IsPastedBatch && File.Exists(Settings.BatchFile)) await InspectBatch();
         _ = MonitorLoop(); Refresh();
@@ -327,9 +346,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (restart && settings.Validate() is string error) throw new ArgumentException(error);
         // Validate automatic API insertion before stopping a running miner.
         if (restart && settings.UsePastedBatch) _ = PastedBatch.Prepare(settings.BatchContent, settings.ApiPort);
+        if (settings.ValidateLogDirectory() is string logError) throw new ArgumentException(logError);
+        var directory = LogDirectoryFor(settings);
+        CheckLogDirectory(directory);
         await _store.SaveAsync(settings); _saved = settings; _settingsLoaded = true;
+        _miningLog.SetDirectory(directory);
+        Changed(nameof(MiningLogDirectory)); Changed(nameof(MiningLogStatus));
         await _controller.ApplyRecoveryAsync(settings.RestartOnUnexpectedExit);
-        Notice = "監控更新間隔與異常重啟選項已套用；BAT 變更需重啟礦工。";
+        Notice = "監控更新間隔、紀錄資料夾與異常重啟選項已套用；BAT 變更需重啟礦工。";
         if (!restart) { _nextPoll = default; await Poll(); return; }
         await ReadBatchPool(settings); _apiHealthy = false; ApiStatus = "正在啟動 BAT，等待 API…";
         await _controller.RestartAsync(settings); _activeSettings = settings;
@@ -389,7 +413,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     }
                 }
                 catch (Exception e) when (e is not OperationCanceledException) { ShowError(e); }
-                if (DateTimeOffset.Now >= _nextPoll && !_controller.IsTransitioning) await Poll();
+                if (_controller.IsRunning && DateTimeOffset.Now >= _nextPoll && !_controller.IsTransitioning) await Poll();
+                if (!_controller.IsRunning && !_controller.IsTransitioning)
+                { _apiHealthy = false; ApiStatus = "監控已暫停 · 等待礦工啟動。"; }
                 Refresh();
             }
         }
@@ -397,24 +423,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private async Task Poll()
     {
+        if (!_controller.IsRunning || _controller.IsTransitioning) return;
         await _pollGate.WaitAsync(_lifetime.Token);
         try { await PollCore(); }
         finally { _pollGate.Release(); }
     }
     private async Task PollCore()
     {
+        if (!_controller.IsRunning || _controller.IsTransitioning) return;
         _nextPoll = DateTimeOffset.Now.AddSeconds(1);
         var session = _controller.Session;
         try
         {
+            ApiPollCount++;
             var data = await _api.ReadAsync(MonitoringSettings.ApiPort, _lifetime.Token);
-            if (_controller.IsTransitioning || session != _controller.Session) return;
+            if (!_controller.IsRunning || _controller.IsTransitioning || session != _controller.Session) return;
             var snapshot = data.Snapshot;
             if (_snapshot is null || _lastControllerSession != session) _lastSession = session;
             else if (snapshot.UptimeSeconds < _snapshot.UptimeSeconds)
             {
                 _lastSession = Guid.NewGuid(); _minerOutput.Reset();
-                EnsureAcceptedSession(snapshot.Timestamp); _poolDifficulty = null; _difficultyTimestamp = null; _lastHardwareRun = Guid.Empty;
+                EnsureAcceptedSession(snapshot.Timestamp); _poolDifficulty = null; _difficultyTimestamp = null;
                 BeginAcceptedSession(Guid.NewGuid(), snapshot.Timestamp);
             }
             _lastControllerSession = session; snapshot = snapshot with { Session = _lastSession };
@@ -426,15 +455,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_minuteMetrics.IsDue(snapshot.Timestamp, snapshot.Session, refresh))
             {
                 var sensors = await NvidiaSensors.ReadAsync(_lifetime.Token);
-                if (_controller.IsTransitioning || session != _controller.Session || refresh != _saved.MetricRefresh) return;
+                if (!_controller.IsRunning || _controller.IsTransitioning || session != _controller.Session || refresh != _saved.MetricRefresh) return;
                 var hardware = NvidiaSensors.Merge(snapshot, data.Buses, sensors);
                 if (_minuteMetrics.Update(hardware, refresh))
                 {
                     History.Add(hardware);
                     if (_controller.IsRunning)
                     {
-                        EnsureAcceptedSession(hardware.Timestamp); _lastHardwareRun = _process.OutputSession;
-                        WriteMiningLog("hardware", DateTimeOffset.Now);
+                        RecordAccepted(DateTimeOffset.Now);
+                        CaptureAcceptedAverages(hardware.Timestamp);
                     }
                     var selectedId = SelectedGpu?.Metrics.Id;
                     Gpus.Clear(); foreach (var gpu in hardware.Gpus) Gpus.Add(new(gpu));
@@ -443,12 +472,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception e) { _apiHealthy = false; ApiStatus = "API 尚未連線：" + Redact(e.Message) + "；BAT 的成功分享訊息仍即時接收。"; }
+        catch (Exception e) { _apiHealthy = false; if (!_controller.IsRunning) return; ApiStatus = "API 尚未連線：" + Redact(e.Message) + "；BAT 的成功分享訊息仍即時接收。"; }
         Refresh();
     }
     private void Refresh()
     {
-        foreach (var property in new[] { nameof(AcceptedAverage10m), nameof(AcceptedAverage30m), nameof(AcceptedAverage1h), nameof(AcceptedAverageUpdated), nameof(MiningLogStatus), nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(HashrateUpdate), nameof(MetricRefreshSummary), nameof(ChartMaxGapSeconds), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(TotalAccepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(PoolSource), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(ApiEndpoint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
+        foreach (var property in new[] { nameof(UnexpectedExitCount), nameof(MiningLogStatus), nameof(Status), nameof(RigTitle), nameof(Version), nameof(Uptime), nameof(LastUpdate), nameof(HashrateUpdate), nameof(MetricRefreshSummary), nameof(ChartMaxGapSeconds), nameof(Freshness), nameof(Hashrate), nameof(Power), nameof(Efficiency), nameof(Temperature), nameof(Accepted), nameof(TotalAccepted), nameof(Rejected), nameof(Stale), nameof(Timeout), nameof(HardwareErrors), nameof(Acceptance), nameof(ShareTitle), nameof(Pool), nameof(PoolSource), nameof(GpuCount), nameof(ChartSamples), nameof(Average1m), nameof(Average15m), nameof(Average1h), nameof(Average6h), nameof(ScheduleSummary), nameof(ScheduleDetail), nameof(ApiEndpoint), nameof(SaveStartText), nameof(StartRequirement) }) Changed(property);
         CommandManager.InvalidateRequerySuggested();
     }
     public void Dispose() { _lifetime.Cancel(); _api.Dispose(); _process.Dispose(); _miningLog.DisposeAsync().AsTask().GetAwaiter().GetResult(); _lifetime.Dispose(); }

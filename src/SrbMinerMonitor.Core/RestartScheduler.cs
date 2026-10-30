@@ -58,6 +58,7 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
     public bool IsTransitioning { get; private set; }
     public Guid Session { get; private set; } = Guid.NewGuid();
     public long AutomaticRestarts { get; private set; }
+    public long UnexpectedExits { get; private set; }
     public event Action<string>? Event;
 
     // Applies live without replacing the BAT/settings used by the currently owned miner.
@@ -101,6 +102,7 @@ public sealed class MinerController(IMinerProcess process, TimeProvider? time = 
         if (_expectedRunning && !process.IsRunning)
         {
             _expectedRunning = false;
+            UnexpectedExits++;
             // Clean up the old BAT and confirm port release before arming any new launch.
             await process.StopAsync(ct);
             if (Scheduler.Armed && Scheduler.Options.Enabled)

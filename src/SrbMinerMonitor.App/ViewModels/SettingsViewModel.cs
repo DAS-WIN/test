@@ -5,6 +5,8 @@ public sealed class SettingsViewModel : ObservableObject
 {
     private string _mode = "選擇現有 BAT", _batchFile = "", _batchContent = "", _directory = "", _rigName = "rig-01", _apiPort = "21550";
     private string _refreshValue = "1", _refreshUnit = "分";
+    private string _miningLogDirectory = "";
+    public string MiningLogDirectory { get => _miningLogDirectory; set => Set(ref _miningLogDirectory, value); }
     private bool _restartOnUnexpectedExit;
     public bool RestartOnUnexpectedExit { get => _restartOnUnexpectedExit; set => Set(ref _restartOnUnexpectedExit, value); }
     public string[] RefreshUnits { get; } = ["秒", "分", "時", "天"];
@@ -29,6 +31,7 @@ public sealed class SettingsViewModel : ObservableObject
         RigName = settings.RigName; ApiPort = settings.ApiPort.ToString();
         RefreshValue = settings.MetricRefresh.Value.ToString(); RefreshUnit = RefreshUnits[(int)settings.MetricRefresh.Unit];
         RestartOnUnexpectedExit = settings.RestartOnUnexpectedExit;
+        MiningLogDirectory = settings.MiningLogDirectory;
     }
     public MinerSettings ToSettings(RestartOptions restart)
     {
@@ -37,7 +40,7 @@ public sealed class SettingsViewModel : ObservableObject
         var index = Array.IndexOf(RefreshUnits, RefreshUnit);
         var refresh = new MetricRefreshOptions(intervalValue, (SrbMinerMonitor.Core.RefreshUnit)index);
         if (refresh.Validate() is string error) throw new ArgumentException(error);
-        return new() { RestartOnUnexpectedExit = RestartOnUnexpectedExit, MetricRefresh = refresh, BatchFile = BatchFile.Trim(), UsePastedBatch = IsPastedBatch, BatchContent = BatchContent,
+        return new() { MiningLogDirectory = MiningLogDirectory.Trim(), RestartOnUnexpectedExit = RestartOnUnexpectedExit, MetricRefresh = refresh, BatchFile = BatchFile.Trim(), UsePastedBatch = IsPastedBatch, BatchContent = BatchContent,
             BatchDirectory = BatchDirectory.Trim(), RigName = RigName.Trim(), ApiPort = port, Restart = restart };
     }
 }

@@ -54,7 +54,7 @@ var outputTask = Task.Run(async () =>
                 if (kind == "api-accepted") { Interlocked.Increment(ref accepted); continue; }
                 if (kind == "flush-accepted") { Console.WriteLine("GPU0[t0] share accepted [777ms] [pearlhash][0] DELAYED_FIXTURE"); continue; }
                 if (kind == "accepted") Interlocked.Increment(ref accepted);
-                Console.WriteLine("GPU0[t0] share " + kind + " [ 213ms ][pearlhash][0]");
+                Console.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] GPU0[t0] share " + kind + " [ 213ms ][pearlhash][0]");
             }
         }
     }

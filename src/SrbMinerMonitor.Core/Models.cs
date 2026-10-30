@@ -52,9 +52,27 @@ public sealed record MinerSettings
     public RestartOptions Restart { get; init; } = new();
     public MetricRefreshOptions MetricRefresh { get; init; } = new();
     public bool RestartOnUnexpectedExit { get; init; }
+    public string MiningLogDirectory { get; init; } = "";
+
+    public string? ValidateLogDirectory()
+    {
+        if (!string.IsNullOrWhiteSpace(MiningLogDirectory))
+        {
+            try
+            {
+                if (!Path.IsPathFullyQualified(MiningLogDirectory) || MiningLogDirectory.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+                    return "紀錄資料夾必須為完整的有效路徑。";
+                _ = Path.GetFullPath(MiningLogDirectory);
+            }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+            { return "紀錄資料夾路徑無效。"; }
+        }
+        return null;
+    }
 
     public string? Validate(bool checkFile = true)
     {
+        if (ValidateLogDirectory() is string logError) return logError;
         if (MetricRefresh.Validate() is string intervalError) return intervalError;
         if (ApiPort is < 1 or > 65535) return "API 連接埠必須介於 1 與 65535。";
         if (UsePastedBatch)

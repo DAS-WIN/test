@@ -35,8 +35,8 @@ jobs:
         shell: pwsh
       - run: ./scripts/Verify-PublishedStartup.ps1
         shell: pwsh
-      - name: Publish verified private prerelease
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/0.1.8-accepted-logs'
+      - name: Publish verified prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/0.2.2-share-records'
         run: ./scripts/Publish-GitHubRelease.ps1
         shell: pwsh
         env:
