@@ -6,6 +6,12 @@ try {
     [xml]$project = Get-Content src/SrbMinerMonitor.App/SrbMinerMonitor.App.csproj
     $version = [string]$project.Project.PropertyGroup.Version
     $tag = "v$version"
+    $publishedTags = @(gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name')
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot check existing releases.' }
+    if ($publishedTags -contains $tag) {
+        Write-Host "Release $tag already exists; verified main without replacing the published assets."
+        return
+    }
     $portable = "artifacts/SRBMinerMonitor-$version-win-x64.zip"
     $source = "artifacts/SRBMinerMonitor-$version-source.zip"
     $validation = "artifacts/SRBMinerMonitor-$version-Windows-validation.zip"

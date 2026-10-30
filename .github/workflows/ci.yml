@@ -1,8 +1,7 @@
 name: Build and verify
 on:
   push:
-    branches: ['**']
-  pull_request:
+    branches: [main]
   workflow_dispatch:
 concurrency:
   group: build-${{ github.ref }}
@@ -36,7 +35,7 @@ jobs:
       - run: ./scripts/Verify-PublishedStartup.ps1
         shell: pwsh
       - name: Publish verified prerelease
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/0.2.2-share-records'
+        if: github.ref == 'refs/heads/main'
         run: ./scripts/Publish-GitHubRelease.ps1
         shell: pwsh
         env:
