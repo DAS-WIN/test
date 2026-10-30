@@ -272,6 +272,8 @@ internal static class Program
         deadline = DateTimeOffset.Now.AddSeconds(3);
         while (!vm.MinerOutputText.Contains("[diff: 2000]") && DateTimeOffset.Now < deadline) await Task.Delay(20);
         if (!vm.MinerOutputText.Contains("[diff: 2000]")) throw new InvalidOperationException("Difficulty output was not observed.");
+        // Wait for a fresh API sample while the daily hardware display stays frozen.
+        await Task.Delay(1200);
         await File.WriteAllTextAsync(Path.Combine(directory, "fixture-accepted"), "go");
         deadline = DateTimeOffset.Now.AddSeconds(3);
         while (vm.TotalAccepted != "6" && DateTimeOffset.Now < deadline) await Task.Delay(20);
